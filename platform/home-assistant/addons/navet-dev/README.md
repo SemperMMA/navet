@@ -37,3 +37,14 @@ private URLs, entity names, and household details from logs and screenshots firs
 
 For update behavior, channel details, and advanced troubleshooting, see the
 [Navet Dev guide](https://docs.navet.app/install/navet-dev/).
+
+## Configuration
+
+Spotify application settings can be entered from the guided setup in Navet's **Music** section and
+are stored in the add-on's persistent `/data` directory. Apple Music uses MusicKit authentication
+and does not require a token in the add-on configuration.
+
+- `dashboard_config_url`: optional Navet dashboard config import URL for first launch
+- `spotify_client_id`: optional Spotify application client ID for the native Music section
+- `spotify_redirect_uri`: optional advanced HTTPS callback override; by default, register
+  `https://navet.app/redirect/oauth` in Spotify

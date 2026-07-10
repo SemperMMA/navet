@@ -121,6 +121,22 @@ Optional multi-provider add-on settings:
 - trusted Home Assistant user headers are accepted only on this Ingress-only deployment path
 - use standalone Docker when you need direct browser access and per-browser Home Assistant OAuth
 
+### Optional Music Accounts
+
+The add-on can enable Navet's native Music section independently of the Home Assistant provider:
+
+- open Navet's **Music** section; use **Set up** for Spotify or **Authenticate** to authorize Apple
+  Music through MusicKit
+- register `https://navet.app/redirect/oauth`, the Spotify callback displayed by the setup guide;
+  the relay returns authorization to the local add-on without requiring HTTPS on Home Assistant
+- alternatively, use `spotify_client_id` and `spotify_redirect_uri` as deployment-managed Spotify
+  defaults
+- Apple credentials are not entered into the add-on; Navet's hosted service supplies the public
+  developer token while the Apple private key stays outside self-hosted deployments
+
+Spotify playback hands off to Connect devices or compatible Home Assistant media players. Apple
+Music playback stays in the current Navet browser in the first release. See [Music](MUSIC.md).
+
 ### Troubleshooting
 
 - Do not expose the add-on's internal port through a separate host proxy. That would bypass the

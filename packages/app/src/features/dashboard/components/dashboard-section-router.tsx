@@ -54,6 +54,10 @@ const MediaSection = lazy(async () => {
   const module = await import('@navet/app/components/layout/media-section');
   return { default: module.MediaSection };
 });
+const MusicSection = lazy(async () => {
+  const module = await import('@navet/app/features/music/components/music-section');
+  return { default: module.MusicSection };
+});
 const EnergySection = lazy(async () => {
   const module = await import('@navet/app/features/energy/components/energy-section');
   return { default: module.EnergySection };
@@ -510,6 +514,12 @@ function DashboardSectionRouterComponent({ controller }: DashboardSectionRouterP
     sectionContent = (
       <Suspense fallback={<LoadingSpinner />}>
         <MediaSection />
+      </Suspense>
+    );
+  } else if (activeSection === 'music') {
+    sectionContent = (
+      <Suspense fallback={<LoadingSpinner />}>
+        <MusicSection />
       </Suspense>
     );
   } else if (activeSection === 'settings') {

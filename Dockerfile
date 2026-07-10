@@ -58,6 +58,7 @@ COPY docker/njs/installation-cookie-scope.js /etc/nginx/njs/installation-cookie-
 COPY docker/njs/openhab-store.js /etc/nginx/njs/openhab-store.js
 COPY docker/njs/openhab-proxy.js /etc/nginx/njs/openhab-proxy.js
 COPY docker/njs/homey-store.js /etc/nginx/njs/homey-store.js
+COPY docker/njs/music-store.js /etc/nginx/njs/music-store.js
 COPY docker/njs/homey-proxy.js /etc/nginx/njs/homey-proxy.js
 COPY docker/njs/ha-proxy.template.js /etc/navet-nginx/ha-proxy.template.js
 COPY docker/snippets/navet-rss-proxy.conf /etc/nginx/snippets/navet-rss-proxy.conf
@@ -65,6 +66,7 @@ COPY docker/snippets/navet-profile-store.conf /etc/nginx/snippets/navet-profile-
 COPY docker/snippets/navet-auth-store.conf /etc/nginx/snippets/navet-auth-store.conf
 COPY docker/snippets/navet-openhab-store.conf /etc/nginx/snippets/navet-openhab-store.conf
 COPY docker/snippets/navet-homey-store.conf /etc/nginx/snippets/navet-homey-store.conf
+COPY docker/snippets/navet-music-store.conf /etc/nginx/snippets/navet-music-store.conf
 COPY docker/snippets/navet-discovery.conf /etc/nginx/snippets/navet-discovery.conf
 COPY docker/snippets/navet-security-headers.conf /etc/nginx/snippets/navet-security-headers.conf
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf

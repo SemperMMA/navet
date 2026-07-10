@@ -8,6 +8,7 @@ export * from './home-events';
 export * from './ids';
 export * from './integration-providers';
 export * from './integration-service-target';
+export * from './music';
 export * from './provider-contract';
 export * from './provider-feature-models';
 export * from './provider-feature-services';

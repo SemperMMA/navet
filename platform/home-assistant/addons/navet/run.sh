@@ -10,6 +10,8 @@ HOMEY_CLIENT_ID="$(bashio::config 'homey_client_id')"
 HOMEY_CLIENT_SECRET="$(bashio::config 'homey_client_secret')"
 HOMEY_REDIRECT_URI="$(bashio::config 'homey_redirect_uri')"
 ALLOW_INSECURE_PROVIDER_TLS="$(bashio::config 'allow_insecure_provider_tls')"
+SPOTIFY_CLIENT_ID="$(bashio::config 'spotify_client_id')"
+SPOTIFY_REDIRECT_URI="$(bashio::config 'spotify_redirect_uri')"
 RESOLVED_HASS_PROXY_BASE="http://supervisor/core"
 
 mkdir -p /data
@@ -62,6 +64,8 @@ export NAVET_HOMEY_CLIENT_SECRET="${HOMEY_CLIENT_SECRET}"
 export NAVET_HOMEY_REDIRECT_URI="${HOMEY_REDIRECT_URI}"
 export NAVET_ALLOW_INSECURE_PROVIDER_TLS="${ALLOW_INSECURE_PROVIDER_TLS}"
 export NAVET_TRUST_HOME_ASSISTANT_INGRESS="true"
+export NAVET_SPOTIFY_CLIENT_ID="${SPOTIFY_CLIENT_ID}"
+export NAVET_SPOTIFY_REDIRECT_URI="${SPOTIFY_REDIRECT_URI}"
 
 if [[ "${DASHBOARD_CONFIG_URL}" == *\"* || "${DASHBOARD_CONFIG_URL}" == *\'* || "${DASHBOARD_CONFIG_URL}" == *";"* ]]; then
   echo "dashboard_config_url must not contain quotes or semicolons" >&2
@@ -97,6 +101,7 @@ server {
   include /etc/nginx/snippets/navet-homey-store.conf;
   include /etc/nginx/snippets/navet-openhab-store.conf;
   include /etc/nginx/snippets/navet-profile-store-ingress.conf;
+  include /etc/nginx/snippets/navet-music-store.conf;
   js_set \$navet_provider_proxy_request_allowed navet_homey_proxy.request_allowed;
 
   location /__navet_ha_proxy__/ {

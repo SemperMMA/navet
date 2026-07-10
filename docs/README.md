@@ -21,6 +21,8 @@ Use this page as the map for the documentation set.
   Homey standalone setup.
 - [OPENHAB.md](OPENHAB.md)
   openHAB standalone setup.
+- [MUSIC.md](MUSIC.md)
+  Spotify and Apple Music setup, playback behavior, and provider boundaries.
 - [WIDGETS.md](WIDGETS.md)
   Widget reference: types, sizes, placement, and limits.
 - [integrations.md](integrations.md)

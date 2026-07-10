@@ -33,13 +33,15 @@
 ## Everyday control without admin-screen clutter
 
 Navet keeps live state and common actions close at hand while your connected platform remains the
-source of truth. Rooms, lights, climate, media, energy, security, and routines stay easy to reach
+source of truth. Rooms, lights, climate, media, music, energy, security, and routines stay easy to reach
 without making every household member navigate a configuration interface.
 
 - **Room-first control.** See what matters where it happens, then act without digging through
   entity lists.
 - **Familiar across screens.** Wall panels, tablets, desktops, and phones keep the same interaction
   model while the layout adapts to each screen.
+- **Music built in.** Search connected Spotify and Apple Music accounts, then hand playback to a
+  compatible output or the current display.
 - **Local by default.** Provider data, dashboard state, and credentials stay on your device or
   server—not on Navet servers.
 - **Open source.** Run it yourself, inspect the code, and help shape what comes next.
@@ -56,7 +58,7 @@ without making every household member navigate a configuration interface.
 
 ## Focused controls when you need them
 
-Open focused controls for lighting, climate, media, energy, security, and tasks when your connected
+Open focused controls for lighting, climate, media, music, energy, security, and tasks when your connected
 platform supports them.
 
 Shape the Home view around your household with editable layouts, dashboard profiles, widgets,

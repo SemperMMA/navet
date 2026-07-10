@@ -29,3 +29,17 @@ Still stuck? Read the [Home Assistant guide](https://docs.navet.app/install/home
 [open a GitHub issue](https://github.com/awesomestvi/navet/issues). Include your Navet and Home
 Assistant versions, what you were doing, and the smallest set of steps that reproduces the problem.
 Remove tokens, private URLs, entity names, and household details from logs and screenshots first.
+
+## Configuration
+
+Spotify application settings can be entered from the guided setup in Navet's **Music** section and
+are stored in the add-on's persistent `/data` directory. Apple Music uses MusicKit authentication
+and does not require a token in the add-on configuration.
+
+- `dashboard_config_url`: optional Navet dashboard config import URL for first launch
+- `homey_client_id`: optional Athom Web API client ID for Homey login from the add-on
+- `homey_client_secret`: optional Athom Web API client secret for Homey login from the add-on
+- `homey_redirect_uri`: optional exact Homey OAuth callback URL override when the add-on cannot infer the public ingress URL correctly
+- `spotify_client_id`: optional Spotify application client ID for the native Music section
+- `spotify_redirect_uri`: optional advanced HTTPS callback override; by default, register
+  `https://navet.app/redirect/oauth` in Spotify

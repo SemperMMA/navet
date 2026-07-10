@@ -10,6 +10,7 @@
     "./dashboard-entity-view": "./src/dashboard-entity-view.ts",
     "./errors": "./src/errors.ts",
     "./ids": "./src/ids.ts",
+    "./music": "./src/music.ts",
     "./provider-contract": "./src/provider-contract.ts",
     "./snapshot-backed-adapter": "./src/snapshot-backed-adapter.ts",
     "./types": "./src/types.ts"

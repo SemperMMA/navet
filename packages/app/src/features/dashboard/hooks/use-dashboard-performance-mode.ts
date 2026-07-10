@@ -69,6 +69,7 @@ export function countHeavyDashboardDevices(visibleDevices: Iterable<DeviceWithTy
 function resolveBaseThreshold(activeSection: Section) {
   switch (activeSection) {
     case 'media':
+    case 'music':
     case 'security':
       return 8;
     case 'lights':

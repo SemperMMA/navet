@@ -2,6 +2,7 @@ import babel from '@rolldown/plugin-babel'
 import tailwindcss from '@tailwindcss/vite'
 import react, { reactCompilerPreset } from '@vitejs/plugin-react'
 import { execSync } from 'node:child_process'
+import { createHash, randomBytes } from 'node:crypto'
 import { lookup } from 'node:dns/promises'
 import { readFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -53,6 +54,10 @@ import {
   normalizeHomeyRefreshTokenPayload,
   type ViteStoredHomeySession,
 } from '../../scripts/vite-homey-session-store'
+import {
+  createViteMusicConfigStore,
+  isValidMusicServiceConfigPatch,
+} from '../../scripts/vite-music-config-store'
 import {
   createViteOpenHABSessionStore,
   OPENHAB_SESSION_COOKIE_NAME as OPENHAB_SESSION_COOKIE_BASE_NAME,
@@ -144,6 +149,9 @@ const DISABLED_INSTALLATION_AUTHORITY: ViteInstallationAuthority = {
   commitOpenHAB: () => false,
   getCookieNames: (baseName) => createInstallationCookieNames(baseName),
 }
+const NAVET_SPOTIFY_OAUTH_RELAY_URI = 'https://navet.app/redirect/oauth'
+const NAVET_APPLE_MUSIC_DEVELOPER_TOKEN_URL =
+  'https://navet.app/api/music/apple/developer-token'
 
 function resolveFallbackGitSha() {
   try {
@@ -2747,6 +2755,362 @@ function openhabSessionStorePlugin(
   }
 }
 
+function musicServicePlugin() {
+  type SpotifySession = {
+    accessToken: string
+    refreshToken: string
+    expiresAt: number
+    displayName?: string
+    subscription?: string
+  }
+  let session: SpotifySession | null = null
+  let pending: { verifier: string; state: string; createdAt: number } | null = null
+  let cachedAppleMusicDeveloperToken: { value: string; expiresAt: number } | null = null
+  const musicConfigStore = createViteMusicConfigStore()
+
+  const sendJson = (res: ServerResponse, status: number, payload: unknown) => {
+    res.statusCode = status
+    res.setHeader('Cache-Control', 'no-store')
+    res.setHeader('Content-Type', 'application/json; charset=utf-8')
+    res.end(JSON.stringify(payload))
+  }
+
+  const base64Url = (value: Buffer) =>
+    value.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+
+  const getOrigin = (req: IncomingMessage) => {
+    const protocol = String(req.headers['x-forwarded-proto'] ?? 'http').split(',')[0]?.trim()
+    return `${protocol}://${req.headers.host ?? 'navet.local:5200'}`
+  }
+
+  const readRequestBody = async (req: IncomingMessage, maxBytes = 32 * 1024) => {
+    const chunks: Buffer[] = []
+    let size = 0
+    for await (const chunk of req) {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+      size += buffer.byteLength
+      if (size > maxBytes) throw new Error('Music service request is too large')
+      chunks.push(buffer)
+    }
+    return Buffer.concat(chunks).toString('utf8')
+  }
+
+  const getEffectiveConfig = () => {
+    const stored = musicConfigStore.getConfig()
+    const spotifyClientId =
+      stored.spotifyClientId ?? process.env.NAVET_SPOTIFY_CLIENT_ID?.trim() ?? ''
+    const spotifyRedirectUri =
+      stored.spotifyRedirectUri ??
+      process.env.NAVET_SPOTIFY_REDIRECT_URI?.trim() ??
+      NAVET_SPOTIFY_OAUTH_RELAY_URI
+
+    return {
+      spotifyClientId,
+      spotifyRedirectUri,
+      spotifySource: stored.spotifyClientId
+        ? 'stored'
+        : spotifyClientId
+          ? 'environment'
+          : 'none',
+    } as const
+  }
+
+  const getConfigStatus = () => {
+    const config = getEffectiveConfig()
+    return {
+      spotify: {
+        configured: Boolean(config.spotifyClientId),
+        source: config.spotifySource,
+        clientIdHint: config.spotifyClientId ? config.spotifyClientId.slice(-4) : null,
+        redirectUri: config.spotifyRedirectUri,
+      },
+    }
+  }
+
+  const resolveAppleMusicDeveloperToken = async () => {
+    const environmentToken = process.env.NAVET_APPLE_MUSIC_DEVELOPER_TOKEN?.trim()
+    if (environmentToken) return environmentToken
+    if (cachedAppleMusicDeveloperToken?.expiresAt && cachedAppleMusicDeveloperToken.expiresAt > Date.now()) {
+      return cachedAppleMusicDeveloperToken.value
+    }
+
+    const tokenUrl =
+      process.env.NAVET_APPLE_MUSIC_DEVELOPER_TOKEN_URL?.trim() ??
+      NAVET_APPLE_MUSIC_DEVELOPER_TOKEN_URL
+    const response = await fetch(tokenUrl, { headers: { Accept: 'application/json' } })
+    if (!response.ok) throw new Error('Navet Apple Music authorization is unavailable')
+    const payload = (await response.json().catch(() => null)) as {
+      developerToken?: unknown
+    } | null
+    if (typeof payload?.developerToken !== 'string' || payload.developerToken.length < 100) {
+      throw new Error('Navet Apple Music authorization returned an invalid credential')
+    }
+    cachedAppleMusicDeveloperToken = {
+      value: payload.developerToken,
+      expiresAt: Date.now() + 60 * 60_000,
+    }
+    return payload.developerToken
+  }
+
+  const getLocalSpotifyCallbackUri = (req: IncomingMessage) =>
+    `${getOrigin(req)}/__navet_music__/spotify/callback`
+
+  const getSpotifyAuthorizeLocation = (
+    redirectUri: string,
+    localCallbackUri: string,
+    spotifyAuthorizeUri: string
+  ) => {
+    if (redirectUri !== NAVET_SPOTIFY_OAUTH_RELAY_URI) return spotifyAuthorizeUri
+    const relay = new URL(`${NAVET_SPOTIFY_OAUTH_RELAY_URI}/`)
+    relay.hash = new URLSearchParams({
+      instance: localCallbackUri,
+      authorize: spotifyAuthorizeUri,
+    }).toString()
+    return relay.toString()
+  }
+
+  const exchangeToken = async (body: URLSearchParams) => {
+    const response = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    })
+    if (!response.ok) throw new Error('Spotify token exchange failed')
+    return (await response.json()) as {
+      access_token: string
+      refresh_token?: string
+      expires_in: number
+    }
+  }
+
+  const refreshSession = async () => {
+    if (!session || session.expiresAt > Date.now() + 30_000) return session
+    const clientId = getEffectiveConfig().spotifyClientId
+    if (!clientId) throw new Error('Spotify is not configured')
+    const token = await exchangeToken(
+      new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: session.refreshToken,
+        client_id: clientId,
+      })
+    )
+    session = {
+      ...session,
+      accessToken: token.access_token,
+      refreshToken: token.refresh_token ?? session.refreshToken,
+      expiresAt: Date.now() + token.expires_in * 1000,
+    }
+    return session
+  }
+
+  const handle = async (req: IncomingMessage, res: ServerResponse) => {
+    const requestUrl = new URL(req.url ?? '/', getOrigin(req))
+    const pathname = requestUrl.pathname
+    const effectiveConfig = getEffectiveConfig()
+    const clientId = effectiveConfig.spotifyClientId
+    const redirectUri = effectiveConfig.spotifyRedirectUri
+
+    if (pathname === '/config') {
+      if (req.method === 'GET') {
+        return sendJson(res, 200, getConfigStatus())
+      }
+      if (req.method === 'PUT') {
+        try {
+          const body = await readRequestBody(req)
+          const parsed = JSON.parse(body) as unknown
+          if (!isValidMusicServiceConfigPatch(parsed)) {
+            return sendJson(res, 400, { error: 'Unsupported music configuration' })
+          }
+          musicConfigStore.updateConfig(parsed)
+          if ('spotifyClientId' in parsed || 'spotifyRedirectUri' in parsed) {
+            session = null
+            pending = null
+          }
+          return sendJson(res, 200, getConfigStatus())
+        } catch (error) {
+          return sendJson(
+            res,
+            error instanceof Error && error.message === 'Music service request is too large'
+              ? 413
+              : 400,
+            { error: 'Unable to save music configuration' }
+          )
+        }
+      }
+      if (req.method === 'DELETE') {
+        musicConfigStore.clearConfig()
+        session = null
+        pending = null
+        return sendJson(res, 200, getConfigStatus())
+      }
+      res.setHeader('Allow', 'GET, PUT, DELETE')
+      return sendJson(res, 405, { error: 'Method not allowed' })
+    }
+
+    if (pathname === '/spotify/authorize') {
+      if (!clientId) return sendJson(res, 503, { error: 'Spotify is not configured' })
+      const verifier = base64Url(randomBytes(64))
+      const state = base64Url(randomBytes(32))
+      pending = { verifier, state, createdAt: Date.now() }
+      const challenge = base64Url(createHash('sha256').update(verifier).digest())
+      const params = new URLSearchParams({
+        response_type: 'code',
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        scope:
+          'user-read-private user-library-read user-read-playback-state user-modify-playback-state user-read-currently-playing',
+        state,
+        code_challenge_method: 'S256',
+        code_challenge: challenge,
+      })
+      const spotifyAuthorizeUri = `https://accounts.spotify.com/authorize?${params}`
+      res.statusCode = 302
+      res.setHeader(
+        'Location',
+        getSpotifyAuthorizeLocation(
+          redirectUri,
+          getLocalSpotifyCallbackUri(req),
+          spotifyAuthorizeUri
+        )
+      )
+      res.end()
+      return
+    }
+
+    if (pathname === '/spotify/callback') {
+      const valid =
+        pending &&
+        Date.now() - pending.createdAt < 10 * 60_000 &&
+        requestUrl.searchParams.get('state') === pending.state
+      const code = requestUrl.searchParams.get('code')
+      if (!valid || !code || !pending) {
+        res.statusCode = 302
+        res.setHeader('Location', '/music?music_oauth=spotify&status=failed')
+        res.end()
+        return
+      }
+      try {
+        const token = await exchangeToken(
+          new URLSearchParams({
+            grant_type: 'authorization_code',
+            code,
+            redirect_uri: redirectUri,
+            client_id: clientId,
+            code_verifier: pending.verifier,
+          })
+        )
+        session = {
+          accessToken: token.access_token,
+          refreshToken: token.refresh_token ?? '',
+          expiresAt: Date.now() + token.expires_in * 1000,
+        }
+        const profileResponse = await fetch('https://api.spotify.com/v1/me', {
+          headers: { Authorization: `Bearer ${session.accessToken}` },
+        })
+        if (profileResponse.ok) {
+          const profile = (await profileResponse.json()) as {
+            display_name?: string
+            id?: string
+            product?: string
+          }
+          session.displayName = profile.display_name ?? profile.id
+          session.subscription = profile.product
+        }
+        pending = null
+        res.statusCode = 302
+        res.setHeader('Location', '/music?music_oauth=spotify&status=connected')
+        res.end()
+      } catch {
+        res.statusCode = 302
+        res.setHeader('Location', '/music?music_oauth=spotify&status=failed')
+        res.end()
+      }
+      return
+    }
+
+    if (pathname === '/spotify/status') {
+      if (!clientId) {
+        return sendJson(res, 200, { state: 'unavailable', reason: 'Spotify is not configured' })
+      }
+      if (!session) return sendJson(res, 200, { state: 'disconnected' })
+      await refreshSession()
+      return sendJson(res, 200, {
+        state: 'connected',
+        displayName: session?.displayName,
+        subscription: session?.subscription,
+      })
+    }
+
+    if (pathname === '/spotify/session' && req.method === 'DELETE') {
+      session = null
+      return sendJson(res, 200, { ok: true })
+    }
+
+    if (pathname.startsWith('/spotify/api/v1/')) {
+      const active = await refreshSession()
+      if (!active) return sendJson(res, 401, { error: 'Connect Spotify first' })
+      const upstreamPath = pathname.slice('/spotify/api'.length)
+      const body =
+        req.method && !['GET', 'HEAD'].includes(req.method)
+          ? await readRequestBody(req)
+          : undefined
+      const upstream = await fetch(
+        `https://api.spotify.com${upstreamPath}${requestUrl.search}`,
+        {
+          method: req.method,
+          headers: {
+            Authorization: `Bearer ${active.accessToken}`,
+            Accept: 'application/json',
+            'Content-Type': String(req.headers['content-type'] ?? 'application/json'),
+          },
+          body: body || undefined,
+        }
+      )
+      res.statusCode = upstream.status
+      res.setHeader('Cache-Control', 'no-store')
+      res.setHeader('Content-Type', upstream.headers.get('content-type') ?? 'application/json')
+      res.end(await upstream.text())
+      return
+    }
+
+    if (pathname === '/apple/status') {
+      try {
+        await resolveAppleMusicDeveloperToken()
+        return sendJson(res, 200, { state: 'disconnected' })
+      } catch (error) {
+        return sendJson(res, 200, {
+          state: 'unavailable',
+          reason: error instanceof Error ? error.message : 'Apple Music authorization is unavailable',
+        })
+      }
+    }
+
+    if (pathname === '/apple/developer-token') {
+      try {
+        return sendJson(res, 200, { developerToken: await resolveAppleMusicDeveloperToken() })
+      } catch (error) {
+        return sendJson(res, 503, {
+          error: error instanceof Error ? error.message : 'Apple Music authorization is unavailable',
+        })
+      }
+    }
+
+    sendJson(res, 404, { error: 'Unknown music endpoint' })
+  }
+
+  const register = (server: ViteDevServer | PreviewServer) => {
+    server.middlewares.use('/__navet_music__', (req, res) => {
+      void handle(req, res).catch(() => sendJson(res, 502, { error: 'Music service request failed' }))
+    })
+  }
+
+  return {
+    name: 'navet-music-service',
+    configureServer: register,
+    configurePreviewServer: register,
+  }
+}
+
 export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, repoRoot, '')
   if (env.NAVET_HOMEY_CLIENT_ID) {
@@ -2757,6 +3121,19 @@ export default defineConfig(({ command, mode }) => {
   }
   if (env.NAVET_HOMEY_REDIRECT_URI) {
     process.env.NAVET_HOMEY_REDIRECT_URI = env.NAVET_HOMEY_REDIRECT_URI
+  }
+  if (env.NAVET_SPOTIFY_CLIENT_ID) {
+    process.env.NAVET_SPOTIFY_CLIENT_ID = env.NAVET_SPOTIFY_CLIENT_ID
+  }
+  if (env.NAVET_SPOTIFY_REDIRECT_URI) {
+    process.env.NAVET_SPOTIFY_REDIRECT_URI = env.NAVET_SPOTIFY_REDIRECT_URI
+  }
+  if (env.NAVET_APPLE_MUSIC_DEVELOPER_TOKEN) {
+    process.env.NAVET_APPLE_MUSIC_DEVELOPER_TOKEN = env.NAVET_APPLE_MUSIC_DEVELOPER_TOKEN
+  }
+  if (env.NAVET_APPLE_MUSIC_DEVELOPER_TOKEN_URL) {
+    process.env.NAVET_APPLE_MUSIC_DEVELOPER_TOKEN_URL =
+      env.NAVET_APPLE_MUSIC_DEVELOPER_TOKEN_URL
   }
   const hassUrl = env.NAVET_HASS_URL?.trim().replace(/\/$/, '')
   const enableDemo = (env.NAVET_ENABLE_DEMO ?? process.env.NAVET_ENABLE_DEMO ?? 'true') !== 'false'
@@ -2865,6 +3242,7 @@ export default defineConfig(({ command, mode }) => {
       tailwindcss(),
       rssProxyPlugin(),
       spotifyMetadataPlugin(),
+      musicServicePlugin(),
       authSessionPlugin,
       dashboardProfilePlugin,
       homeySessionPlugin,

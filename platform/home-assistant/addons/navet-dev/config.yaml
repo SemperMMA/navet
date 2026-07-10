@@ -23,11 +23,15 @@ options:
   homey_client_secret: ""
   homey_redirect_uri: ""
   allow_insecure_provider_tls: false
+  spotify_client_id: ""
+  spotify_redirect_uri: ""
 schema:
   dashboard_config_url: str?
   homey_client_id: str?
   homey_client_secret: password?
   homey_redirect_uri: str?
   allow_insecure_provider_tls: bool
+  spotify_client_id: str?
+  spotify_redirect_uri: str?
   hass_url: str?
   token: password?

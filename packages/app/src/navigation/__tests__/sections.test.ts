@@ -27,6 +27,11 @@ describe('pathToSection', () => {
     expect(pathToSection('/api/hassio_ingress/navet_dev/')).toBe('home');
   });
 
+  it('resolves the native music hub in standalone and ingress paths', () => {
+    expect(pathToSection('/music')).toBe('music');
+    expect(pathToSection('/api/hassio_ingress/navet_dev/music')).toBe('music');
+  });
+
   it('continues to treat unknown base-relative paths as home', () => {
     const base = installBase(`${window.location.origin}/dashboard/`);
 

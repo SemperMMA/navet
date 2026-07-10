@@ -14,6 +14,7 @@ export const CUSTOM_EXTENSION_ICON_IDS = [
   'security',
   'lights',
   'media',
+  'music',
   'tasks',
   'settings',
   'link',
@@ -61,7 +62,6 @@ const sectionIds: Section[] = [
   'tasks',
   'settings',
 ];
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

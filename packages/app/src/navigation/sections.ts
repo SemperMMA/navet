@@ -6,6 +6,7 @@ export type Section =
   | 'tasks'
   | 'lights'
   | 'media'
+  | 'music'
   | 'settings';
 
 export const NAVIGATION_SECTIONS = [
@@ -15,6 +16,7 @@ export const NAVIGATION_SECTIONS = [
   'security',
   'lights',
   'media',
+  'music',
   'tasks',
   'settings',
 ] as const satisfies readonly Section[];
