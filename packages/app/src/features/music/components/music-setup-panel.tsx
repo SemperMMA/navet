@@ -73,9 +73,10 @@ export function MusicSetupPanel({ onClose, onSaved }: MusicSetupPanelProps) {
       setValue('');
       await onSaved();
       toast.success(t('musicHub.setup.saved'));
+      setSaving(false);
+      onClose();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('musicHub.setup.saveFailed'));
-    } finally {
       setSaving(false);
     }
   };

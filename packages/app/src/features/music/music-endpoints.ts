@@ -56,8 +56,16 @@ export async function fetchMusicJson<T>(
   });
 
   if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(payload?.error || `Music service request failed (${response.status})`);
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string | { message?: string };
+    } | null;
+    const message =
+      typeof payload?.error === 'string'
+        ? payload.error
+        : typeof payload?.error?.message === 'string'
+          ? payload.error.message
+          : null;
+    throw new Error(message || `Music service request failed (${response.status})`);
   }
 
   if (response.status === 204) {

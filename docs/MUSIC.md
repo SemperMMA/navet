@@ -1,16 +1,18 @@
 # Music
 
 Navet's Music section is a provider-neutral control hub for streaming catalogs and household
-playback targets. It does not download, transcode, or rebroadcast protected audio.
+playback targets. Standalone and Docker installations include an optional native music engine that
+decodes Spotify audio locally and streams it directly to Sonos on the LAN.
 
 ## Supported Sources
 
 | Source | Search and library | Playback |
 |---|---|---|
-| Spotify | catalog search, saved tracks, queue | Spotify Connect devices and Navet media players that explicitly advertise Spotify playback |
+| Spotify | catalog search, recently played, top artists, queue | native Navet-to-Sonos streaming and unrestricted Spotify Connect devices |
 | Apple Music | catalog search, recently played, queue | this Navet browser through MusicKit |
 
-Spotify requires an eligible account for playback APIs. Apple Music requires subscriber
+Native Spotify audio requires Spotify Premium. It uses the open-source, reverse-engineered
+`librespot` client because Spotify's public Web API does not expose audio. Apple Music requires subscriber
 authorization for full playback; otherwise MusicKit may expose preview-only behavior.
 
 ## Configuration
@@ -40,20 +42,36 @@ Environment variables remain available for managed or immutable deployments and 
 when no value has been stored through the UI:
 
 ```text
-NAVET_SPOTIFY_CLIENT_ID=
-NAVET_SPOTIFY_REDIRECT_URI=
 NAVET_APPLE_MUSIC_DEVELOPER_TOKEN=
 NAVET_APPLE_MUSIC_DEVELOPER_TOKEN_URL=
+NAVET_MUSIC_STREAM_BASE_URL=
+NAVET_SONOS_HOSTS=
 ```
 
-- Register the exact Spotify callback shown in the in-app guide. The default is the hosted Navet
-  relay at `https://navet.app/redirect/oauth`.
-- `NAVET_SPOTIFY_REDIRECT_URI` is an optional advanced override for a direct callback. It must use
-  HTTPS unless it uses Spotify's explicit loopback exception.
 - `NAVET_APPLE_MUSIC_DEVELOPER_TOKEN` is an optional deployment-owned override for development or
   isolated installations. It is not part of end-user setup.
 - `NAVET_APPLE_MUSIC_DEVELOPER_TOKEN_URL` optionally replaces Navet's hosted developer-token
   endpoint.
+- `NAVET_MUSIC_STREAM_BASE_URL` overrides the URL Sonos uses to fetch Navet's MP3 stream. Set it
+  when `navet.local` does not resolve from the speaker, for example
+  `http://192.168.1.20/__navet_music_engine__/stream`.
+- `NAVET_SONOS_HOSTS` accepts comma-separated Sonos IP addresses when Docker bridge networking
+  blocks SSDP multicast, for example `192.168.1.31,192.168.1.32`.
+
+## Native Spotify to Sonos
+
+The native engine is part of Navet and does not call Home Assistant or Music Assistant:
+
+1. Navet discovers Sonos players directly using SSDP/UPnP.
+2. A pinned `librespot` process authenticates using the Spotify session stored by Navet and emits
+   the selected track as Ogg Vorbis.
+3. FFmpeg converts the source into a continuous 320 kbps MP3 response hosted by Navet.
+4. Navet sends the stream URL directly to Sonos using AVTransport SOAP and keeps queue and
+   transport state in the music engine.
+
+The Docker image includes `librespot` and FFmpeg. For local development, install both binaries on
+the host and run `pnpm dev`; the root development command starts the dashboard and music engine
+together.
 
 The Home Assistant add-on exposes `spotify_client_id` and `spotify_redirect_uri` as optional
 deployment-managed defaults. Values saved in Navet take precedence. Spotify's hosted relay and

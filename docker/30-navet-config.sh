@@ -83,6 +83,10 @@ case "${NAVET_ALLOW_INSECURE_PROVIDER_TLS:-false}" in
     ;;
 esac
 
+if [ -x /usr/local/bin/navet-start-music-engine ]; then
+  /usr/local/bin/navet-start-music-engine
+fi
+
 case "${NAVET_HASS_URL}" in
   ""|http://*|https://*) ;;
   *)

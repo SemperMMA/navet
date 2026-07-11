@@ -56,6 +56,8 @@ export interface MusicPlaybackSnapshot {
   positionMs: number;
   durationMs?: number;
   volume?: number;
+  shuffle?: boolean;
+  repeat?: 'off' | 'all' | 'one';
   queue?: MusicQueueSnapshot;
   updatedAt: string;
 }
@@ -69,7 +71,11 @@ export interface MusicPlaybackTarget {
   available: boolean;
   reasonUnavailable?: string;
   room?: string;
+  detail?: string;
   isActive?: boolean;
+  groupId?: string;
+  groupCoordinatorId?: string;
+  groupMemberIds?: string[];
 }
 
 export type MusicTransportCommand =
@@ -78,7 +84,9 @@ export type MusicTransportCommand =
   | { type: 'next' }
   | { type: 'previous' }
   | { type: 'seek'; positionMs: number }
-  | { type: 'set_volume'; volume: number };
+  | { type: 'set_volume'; volume: number }
+  | { type: 'set_shuffle'; enabled: boolean }
+  | { type: 'set_repeat'; mode: 'off' | 'all' | 'one' };
 
 export interface MusicSourceAdapter {
   readonly id: MusicSourceId;
@@ -99,6 +107,8 @@ export interface MusicPlaybackTargetAdapter {
   play(targetId: string, item: MusicItem, options?: { replaceQueue?: boolean }): Promise<void>;
   enqueue?(targetId: string, item: MusicItem): Promise<void>;
   execute(targetId: string, command: MusicTransportCommand): Promise<void>;
+  group?(coordinatorId: string, memberIds: string[]): Promise<void>;
+  ungroup?(targetId: string): Promise<void>;
 }
 
 export interface MusicPlaybackSession {
@@ -106,6 +116,57 @@ export interface MusicPlaybackSession {
   targetId: string;
   queue: MusicQueueSnapshot;
   playback: MusicPlaybackSnapshot;
+}
+
+export const MUSIC_ENGINE_PROTOCOLS = ['sonos', 'dlna', 'airplay', 'spotify_connect'] as const;
+
+export type MusicEngineProtocol = (typeof MUSIC_ENGINE_PROTOCOLS)[number];
+
+export type MusicEngineStatus =
+  | { state: 'unavailable'; reason: string }
+  | { state: 'starting' }
+  | {
+      state: 'ready';
+      version: string;
+      lanStreamBaseUrl: string;
+      spotifyAudioAvailable: boolean;
+      localTranscodingAvailable?: boolean;
+      reason?: string;
+      protocols: MusicEngineProtocol[];
+    };
+
+export interface MusicEngineTarget {
+  id: string;
+  name: string;
+  protocol: MusicEngineProtocol;
+  available: boolean;
+  model?: string;
+  room?: string;
+  address?: string;
+  isActive?: boolean;
+  groupId?: string;
+  groupCoordinatorId?: string;
+  groupMemberIds?: string[];
+}
+
+export interface MusicEnginePlayRequest {
+  targetId: string;
+  item: Pick<
+    MusicItem,
+    'id' | 'sourceId' | 'type' | 'title' | 'artists' | 'uri' | 'durationMs' | 'artworkUrl'
+  >;
+  queueMode: 'replace' | 'add' | 'next';
+}
+
+export interface MusicEngineClient {
+  getStatus(): Promise<MusicEngineStatus>;
+  listTargets(): Promise<MusicEngineTarget[]>;
+  play(request: MusicEnginePlayRequest): Promise<MusicPlaybackSession>;
+  execute(targetId: string, command: MusicTransportCommand): Promise<MusicPlaybackSnapshot>;
+  group(coordinatorId: string, memberIds: string[]): Promise<MusicEngineTarget[]>;
+  ungroup(targetId: string): Promise<MusicEngineTarget[]>;
+  getPlayback(): Promise<MusicPlaybackSnapshot>;
+  getQueue(): Promise<MusicQueueSnapshot>;
 }
 
 export function createMusicItemKey(item: Pick<MusicItem, 'sourceId' | 'type' | 'id'>): string {

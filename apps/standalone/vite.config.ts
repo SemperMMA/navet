@@ -4,7 +4,7 @@ import react, { reactCompilerPreset } from '@vitejs/plugin-react'
 import { execSync } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import { lookup } from 'node:dns/promises'
-import { readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
@@ -2762,8 +2762,28 @@ function musicServicePlugin() {
     expiresAt: number
     displayName?: string
     subscription?: string
+    scope?: string
   }
-  let session: SpotifySession | null = null
+  const spotifySessionPath = path.resolve(__dirname, '.cache/navet-music-spotify-session.json')
+  const loadSpotifySession = (): SpotifySession | null => {
+    try {
+      const value = JSON.parse(readFileSync(spotifySessionPath, 'utf8')) as SpotifySession
+      return value?.accessToken && value?.refreshToken && value?.expiresAt ? value : null
+    } catch {
+      return null
+    }
+  }
+  const persistSpotifySession = (value: SpotifySession | null) => {
+    if (!value) {
+      rmSync(spotifySessionPath, { force: true })
+      return
+    }
+    mkdirSync(path.dirname(spotifySessionPath), { recursive: true })
+    const temporaryPath = `${spotifySessionPath}.tmp`
+    writeFileSync(temporaryPath, JSON.stringify(value), { encoding: 'utf8', mode: 0o600 })
+    renameSync(temporaryPath, spotifySessionPath)
+  }
+  let session: SpotifySession | null = loadSpotifySession()
   let pending: { verifier: string; state: string; createdAt: number } | null = null
   let cachedAppleMusicDeveloperToken: { value: string; expiresAt: number } | null = null
   const musicConfigStore = createViteMusicConfigStore()
@@ -2880,6 +2900,7 @@ function musicServicePlugin() {
       access_token: string
       refresh_token?: string
       expires_in: number
+      scope?: string
     }
   }
 
@@ -2899,7 +2920,9 @@ function musicServicePlugin() {
       accessToken: token.access_token,
       refreshToken: token.refresh_token ?? session.refreshToken,
       expiresAt: Date.now() + token.expires_in * 1000,
+      scope: token.scope ?? session.scope,
     }
+    persistSpotifySession(session)
     return session
   }
 
@@ -2924,6 +2947,7 @@ function musicServicePlugin() {
           musicConfigStore.updateConfig(parsed)
           if ('spotifyClientId' in parsed || 'spotifyRedirectUri' in parsed) {
             session = null
+            persistSpotifySession(null)
             pending = null
           }
           return sendJson(res, 200, getConfigStatus())
@@ -2940,6 +2964,7 @@ function musicServicePlugin() {
       if (req.method === 'DELETE') {
         musicConfigStore.clearConfig()
         session = null
+        persistSpotifySession(null)
         pending = null
         return sendJson(res, 200, getConfigStatus())
       }
@@ -2958,7 +2983,7 @@ function musicServicePlugin() {
         client_id: clientId,
         redirect_uri: redirectUri,
         scope:
-          'user-read-private user-library-read user-read-playback-state user-modify-playback-state user-read-currently-playing',
+          'user-read-private user-library-read user-read-playback-state user-modify-playback-state user-read-currently-playing user-read-recently-played user-top-read streaming',
         state,
         code_challenge_method: 'S256',
         code_challenge: challenge,
@@ -3003,6 +3028,7 @@ function musicServicePlugin() {
           accessToken: token.access_token,
           refreshToken: token.refresh_token ?? '',
           expiresAt: Date.now() + token.expires_in * 1000,
+          scope: token.scope,
         }
         const profileResponse = await fetch('https://api.spotify.com/v1/me', {
           headers: { Authorization: `Bearer ${session.accessToken}` },
@@ -3017,6 +3043,7 @@ function musicServicePlugin() {
           session.subscription = profile.product
         }
         pending = null
+        persistSpotifySession(session)
         res.statusCode = 302
         res.setHeader('Location', '/music?music_oauth=spotify&status=connected')
         res.end()
@@ -3043,6 +3070,7 @@ function musicServicePlugin() {
 
     if (pathname === '/spotify/session' && req.method === 'DELETE') {
       session = null
+      persistSpotifySession(null)
       return sendJson(res, 200, { ok: true })
     }
 
@@ -3394,15 +3422,20 @@ export default defineConfig(({ command, mode }) => {
         fs: {
           allow: [repoRoot],
         },
-        proxy: hassUrl
-          ? {
+        proxy: {
+          '/__navet_music_engine__': {
+            target: 'http://127.0.0.1:5211',
+          },
+          ...(hassUrl
+            ? {
               '/api': {
                 target: hassUrl,
                 changeOrigin: true,
                 secure: false,
               },
-            }
-          : undefined,
+              }
+            : {}),
+        },
       },
     })
   }

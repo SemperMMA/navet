@@ -39,7 +39,8 @@ describe('MusicSetupPanel', () => {
         )
       );
 
-    renderWithProviders(<MusicSetupPanel onClose={vi.fn()} onSaved={vi.fn()} />);
+    const onClose = vi.fn();
+    renderWithProviders(<MusicSetupPanel onClose={onClose} onSaved={vi.fn()} />);
 
     expect(await screen.findByDisplayValue(relayUri)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Spotify Client ID'), {
@@ -55,5 +56,6 @@ describe('MusicSetupPanel', () => {
         spotifyRedirectUri: relayUri,
       }),
     });
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

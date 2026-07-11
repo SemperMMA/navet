@@ -13,6 +13,7 @@ ENV NAVET_RELEASE_CHANNEL=$NAVET_RELEASE_CHANNEL
 ENV NAVET_BUILD_VERSION=${NAVET_BUILD_VERSION:-${NAVET_VERSION}}
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/music-engine/package.json apps/music-engine/package.json
 COPY apps/standalone/package.json apps/standalone/package.json
 COPY packages/app/package.json packages/app/package.json
 COPY packages/core/package.json packages/core/package.json
@@ -31,7 +32,11 @@ COPY assets assets
 COPY scripts scripts
 RUN NAVET_ENABLE_DEMO=$NAVET_ENABLE_DEMO pnpm build
 
-FROM nginx:1.27-alpine
+FROM rust:1.88-alpine AS librespot-build
+RUN apk add --no-cache musl-dev perl make
+RUN cargo install librespot --version 0.8.0 --locked --no-default-features --features rustls-tls-webpki-roots,passthrough-decoder
+
+FROM node:22-alpine
 
 ARG NAVET_VERSION=0.0.0
 ARG NAVET_GIT_SHA=local
@@ -73,12 +78,18 @@ COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY docker/nginx.conf /etc/navet-nginx/default.conf
 COPY docker/config.js.template /usr/share/nginx/html/config.js.template
 COPY docker/30-navet-config.sh /docker-entrypoint.d/30-navet-config.sh
+COPY docker/start-music-engine.sh /usr/local/bin/navet-start-music-engine
+COPY apps/music-engine/src /opt/navet/music-engine
+COPY --from=librespot-build /usr/local/cargo/bin/librespot /usr/local/bin/librespot
 COPY --from=build /app/apps/standalone/dist /usr/share/nginx/html
 
-RUN mkdir -p /data \
+RUN apk add --no-cache nginx nginx-mod-http-js ffmpeg su-exec gettext ca-certificates \
+  && mkdir -p /data /docker-entrypoint.d /run/nginx \
   && chown -R nginx:nginx /data \
-  && chmod +x /docker-entrypoint.d/30-navet-config.sh
+  && chmod +x /docker-entrypoint.d/30-navet-config.sh /usr/local/bin/navet-start-music-engine
 
 VOLUME ["/data"]
 
 EXPOSE 80
+
+ENTRYPOINT ["/bin/sh", "-c", "for f in /docker-entrypoint.d/*.sh; do [ -f \"$f\" ] && \"$f\"; done; exec nginx -g 'daemon off;'"]

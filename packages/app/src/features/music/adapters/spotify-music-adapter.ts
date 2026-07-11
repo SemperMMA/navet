@@ -9,13 +9,17 @@ import type {
   MusicTransportCommand,
 } from '@navet/core/music';
 import { fetchMusicJson, resolveMusicEndpoint } from '../music-endpoints';
+import { navetMusicEngineClient } from '../music-engine-client';
 
 interface SpotifyImage {
   url?: string;
 }
 
 interface SpotifyArtist {
+  id?: string;
+  uri?: string;
   name?: string;
+  images?: SpotifyImage[];
 }
 
 interface SpotifyTrack {
@@ -106,6 +110,20 @@ function mapContextItem(item: SpotifyContextItem | null, type: 'album' | 'playli
   } satisfies MusicItem;
 }
 
+function mapArtist(artist: SpotifyArtist): MusicItem | null {
+  if (!artist.id || !artist.name) return null;
+  return {
+    id: artist.id,
+    sourceId: 'spotify',
+    type: 'artist',
+    title: artist.name,
+    artists: [],
+    artworkUrl: artist.images?.[0]?.url ?? null,
+    playable: true,
+    uri: artist.uri,
+  };
+}
+
 function compactItems(items: Array<MusicItem | null>): MusicItem[] {
   return items.filter((item): item is MusicItem => item !== null);
 }
@@ -141,14 +159,37 @@ export const spotifyMusicSourceAdapter: MusicSourceAdapter = {
     ]);
   },
   async browseLibrary(signal) {
-    const result = await fetchMusicJson<{ items?: Array<{ track?: SpotifyTrack }> }>(
-      '/spotify/api/v1/me/tracks?limit=20',
-      undefined,
-      signal
-    );
-    return compactItems((result.items ?? []).map((item) => mapTrack(item.track ?? {})));
+    try {
+      const [recent, artists] = await Promise.all([
+        fetchMusicJson<{ items?: Array<{ track?: SpotifyTrack }> }>(
+          '/spotify/api/v1/me/player/recently-played?limit=20',
+          undefined,
+          signal
+        ),
+        fetchMusicJson<SpotifyPaging<SpotifyArtist>>(
+          '/spotify/api/v1/me/top/artists?limit=12&time_range=medium_term',
+          undefined,
+          signal
+        ),
+      ]);
+      return compactItems([
+        ...(artists.items ?? []).map(mapArtist),
+        ...(recent.items ?? []).map((item) => mapTrack(item.track ?? {})),
+      ]);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('Insufficient client scope')) {
+        throw new Error('Reconnect Spotify to show recently played music and your top artists.');
+      }
+      throw error;
+    }
   },
   async getPlaybackSnapshot() {
+    try {
+      const enginePlayback = await navetMusicEngineClient.getPlayback();
+      if (enginePlayback.currentItem) return enginePlayback;
+    } catch {
+      // The native engine is optional; Spotify Connect remains available without it.
+    }
     const result = await fetchMusicJson<SpotifyPlaybackResponse | null>(
       '/spotify/api/v1/me/player'
     );
@@ -164,6 +205,12 @@ export const spotifyMusicSourceAdapter: MusicSourceAdapter = {
     } satisfies MusicPlaybackSnapshot;
   },
   async getQueue() {
+    try {
+      const engineQueue = await navetMusicEngineClient.getQueue();
+      if (engineQueue.items.length) return engineQueue;
+    } catch {
+      // The native engine is optional; Spotify Connect remains available without it.
+    }
     const result = await fetchMusicJson<SpotifyQueueResponse>('/spotify/api/v1/me/player/queue');
     const currentItem = result.currently_playing ? mapTrack(result.currently_playing) : null;
     return {
@@ -184,8 +231,11 @@ async function spotifyNoContent(path: string, init: RequestInit) {
     },
   });
   if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(payload?.error || `Spotify command failed (${response.status})`);
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string | { message?: string };
+    } | null;
+    const message = typeof payload?.error === 'string' ? payload.error : payload?.error?.message;
+    throw new Error(message || `Spotify command failed (${response.status})`);
   }
 }
 
@@ -206,6 +256,7 @@ export const spotifyPlaybackTargetAdapter: MusicPlaybackTargetAdapter = {
               kind: 'connect',
               sourceIds: ['spotify'],
               available: !device.is_restricted,
+              detail: 'Spotify Connect',
               reasonUnavailable: device.is_restricted
                 ? 'Spotify reports this device as restricted'
                 : undefined,

@@ -282,6 +282,7 @@ async function refreshSession(r, session) {
     refreshToken: token.refresh_token || session.refreshToken,
     expiresAt: Date.now() + Number(token.expires_in || 3600) * 1000,
     profile: session.profile || null,
+    scope: token.scope || session.scope || '',
   };
   writeJson(SESSION_PATH, next);
   return next;
@@ -314,7 +315,7 @@ async function handleAuthorize(r) {
     encodeURIComponent(config.redirectUri) +
     '&scope=' +
     encodeURIComponent(
-      'user-read-private user-library-read user-read-playback-state user-modify-playback-state user-read-currently-playing'
+      'user-read-private user-library-read user-read-playback-state user-modify-playback-state user-read-currently-playing user-read-recently-played user-top-read streaming'
     ) +
     '&state=' +
     encodeURIComponent(state) +
@@ -354,6 +355,7 @@ async function handleCallback(r) {
       refreshToken: token.refresh_token,
       expiresAt: Date.now() + Number(token.expires_in || 3600) * 1000,
       profile: profile,
+      scope: token.scope || '',
     });
     sendRedirect(r, returnPath(config, 'connected'));
   } catch (_error) {

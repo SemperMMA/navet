@@ -2,6 +2,7 @@ import {
   appleMusicBrowserTargetAdapter,
   appleMusicSourceAdapter,
 } from './adapters/apple-music-adapter';
+import { navetMusicEngineTargetAdapter } from './adapters/navet-music-engine-adapter';
 import {
   spotifyMusicSourceAdapter,
   spotifyPlaybackTargetAdapter,
@@ -21,6 +22,7 @@ export function initializeMusicRuntime() {
   registerMusicSourceAdapter(spotifyMusicSourceAdapter);
   registerMusicSourceAdapter(appleMusicSourceAdapter);
   registerMusicPlaybackTargetAdapter(spotifyPlaybackTargetAdapter);
+  registerMusicPlaybackTargetAdapter(navetMusicEngineTargetAdapter);
   registerMusicPlaybackTargetAdapter(appleMusicBrowserTargetAdapter);
 }
 

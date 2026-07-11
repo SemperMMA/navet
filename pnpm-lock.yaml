@@ -188,6 +188,8 @@ importers:
 
   apps/ha-panel: {}
 
+  apps/music-engine: {}
+
   apps/standalone: {}
 
   apps/storybook: {}

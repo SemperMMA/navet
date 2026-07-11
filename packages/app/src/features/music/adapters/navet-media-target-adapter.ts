@@ -31,6 +31,32 @@ function toTarget(device: MediaDevice): MusicPlaybackTarget {
   };
 }
 
+function targetIdentity(device: MediaDevice) {
+  return [device.providerId ?? '', device.room, device.name]
+    .map((value) => value.trim().toLocaleLowerCase())
+    .join(':');
+}
+
+export function dedupeNavetMediaDevices(devices: MediaDevice[]): MediaDevice[] {
+  const unique = new Map<string, MediaDevice>();
+  for (const device of devices) {
+    const key = targetIdentity(device);
+    const current = unique.get(key);
+    if (
+      !current ||
+      (device.state === 'playing' && current.state !== 'playing') ||
+      (device.state !== 'off' && current.state === 'off')
+    ) {
+      unique.set(key, device);
+    }
+  }
+  return [...unique.values()];
+}
+
+function homeAssistantMediaType(item: MusicItem) {
+  return item.type === 'track' ? 'music' : item.type;
+}
+
 export function createNavetMediaPlaybackTargetAdapter(
   getDevices: () => MediaDevice[]
 ): MusicPlaybackTargetAdapter {
@@ -44,14 +70,14 @@ export function createNavetMediaPlaybackTargetAdapter(
     id: 'navet-media-player',
     async listTargets(sourceId: MusicSourceId) {
       if (sourceId !== 'spotify') return [];
-      return getDevices().filter(acceptsSpotify).map(toTarget);
+      return dedupeNavetMediaDevices(getDevices().filter(acceptsSpotify)).map(toTarget);
     },
     async play(targetId: string, item: MusicItem) {
       getDevice(targetId);
       if (!item.uri) throw new Error('This Spotify item has no playable identifier');
       await integrationMediaFeatureService.playMedia(targetId, {
         mediaContentId: item.uri,
-        mediaContentType: item.type,
+        mediaContentType: homeAssistantMediaType(item),
         enqueue: 'replace',
       });
     },
@@ -60,7 +86,7 @@ export function createNavetMediaPlaybackTargetAdapter(
       if (!item.uri) throw new Error('This Spotify item has no playable identifier');
       await integrationMediaFeatureService.playMedia(targetId, {
         mediaContentId: item.uri,
-        mediaContentType: item.type,
+        mediaContentType: homeAssistantMediaType(item),
         enqueue: 'add',
       });
     },

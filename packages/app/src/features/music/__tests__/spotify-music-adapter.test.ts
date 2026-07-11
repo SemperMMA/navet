@@ -10,6 +10,71 @@ afterEach(() => {
 });
 
 describe('Spotify music adapter', () => {
+  it('loads top artists and actual recently played tracks for the music home', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            items: [
+              {
+                track: {
+                  id: 'recent-1',
+                  uri: 'spotify:track:recent-1',
+                  name: 'Recently heard',
+                  artists: [{ name: 'Lumen' }],
+                  album: { name: 'Night Lines', images: [] },
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            items: [
+              {
+                id: 'artist-1',
+                uri: 'spotify:artist:artist-1',
+                name: 'Lumen',
+                images: [{ url: 'https://img.test/artist.jpg' }],
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(spotifyMusicSourceAdapter.browseLibrary?.()).resolves.toEqual([
+      expect.objectContaining({ id: 'artist-1', type: 'artist', title: 'Lumen' }),
+      expect.objectContaining({ id: 'recent-1', type: 'track', title: 'Recently heard' }),
+    ]);
+    expect(fetchMock.mock.calls[0]?.[0]).toContain('/me/player/recently-played?limit=20');
+    expect(fetchMock.mock.calls[1]?.[0]).toContain('/me/top/artists?');
+  });
+
+  it('asks accounts with the old OAuth grant to reconnect for library permissions', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockImplementation(
+          async () =>
+            new Response(
+              JSON.stringify({ error: { status: 403, message: 'Insufficient client scope' } }),
+              { status: 403, headers: { 'Content-Type': 'application/json' } }
+            )
+        )
+    );
+
+    await expect(spotifyMusicSourceAdapter.browseLibrary?.()).rejects.toThrow(
+      'Reconnect Spotify to show recently played music and your top artists.'
+    );
+  });
+
   it('normalizes federated search results into source-scoped music items', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
