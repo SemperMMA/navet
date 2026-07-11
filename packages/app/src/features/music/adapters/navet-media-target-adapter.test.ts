@@ -1,3 +1,4 @@
+import { EMPTY_NAVET_MEDIA_CAPABILITIES } from '@navet/app/core/navet-device-state';
 import type { MediaDevice } from '@navet/app/types/device.types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -25,7 +26,7 @@ function mediaDevice(overrides: Partial<MediaDevice>): MediaDevice {
     state: 'idle',
     volume: 0.5,
     isMuted: false,
-    mediaCapabilities: { canPlayMedia: true },
+    mediaCapabilities: { ...EMPTY_NAVET_MEDIA_CAPABILITIES, canPlayMedia: true },
     source: 'Spotify',
     ...overrides,
   };

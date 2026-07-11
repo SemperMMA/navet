@@ -100,11 +100,23 @@ export function createNavetMediaPlaybackTargetAdapter(
         await dispatchEntityCommand({ type: 'previous_track', entityId: targetId });
       } else if (command.type === 'seek') {
         await integrationMediaFeatureService.seekMediaPlayer(targetId, command.positionMs / 1000);
-      } else {
+      } else if (command.type === 'set_volume') {
         await dispatchEntityCommand({
           type: 'set_volume',
           entityId: targetId,
           volume: command.volume,
+        });
+      } else if (command.type === 'set_shuffle') {
+        await dispatchEntityCommand({
+          type: 'set_shuffle',
+          entityId: targetId,
+          shuffle: command.enabled,
+        });
+      } else {
+        await dispatchEntityCommand({
+          type: 'set_repeat_mode',
+          entityId: targetId,
+          repeatMode: command.mode,
         });
       }
     },

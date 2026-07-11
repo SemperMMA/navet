@@ -299,6 +299,16 @@ export const spotifyPlaybackTargetAdapter: MusicPlaybackTargetAdapter = {
           )}`,
           { method: 'PUT' }
         ),
+      set_shuffle: () =>
+        spotifyNoContent(
+          `/v1/me/player/shuffle?${device}&state=${command.type === 'set_shuffle' && command.enabled}`,
+          { method: 'PUT' }
+        ),
+      set_repeat: () =>
+        spotifyNoContent(
+          `/v1/me/player/repeat?${device}&state=${command.type === 'set_repeat' ? command.mode : 'off'}`,
+          { method: 'PUT' }
+        ),
     };
     await operations[command.type]();
   },
