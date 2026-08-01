@@ -134,4 +134,33 @@ describe('music-store', () => {
     );
     expect(mockFs.getFile('/data/navet-music-config.json')).toBeUndefined();
   });
+
+  it('accepts only secure Spotify redirect URIs supported by the packaged njs runtime', () => {
+    expect(
+      musicStore.isMusicConfigPatch({
+        spotifyRedirectUri: 'https://navet.example.com/oauth/callback?source=spotify',
+      })
+    ).toBe(true);
+    expect(
+      musicStore.isMusicConfigPatch({
+        spotifyRedirectUri: 'http://127.0.0.1:5200/__navet_music__/spotify/callback',
+      })
+    ).toBe(true);
+    expect(
+      musicStore.isMusicConfigPatch({
+        spotifyRedirectUri: 'http://[::1]:5200/__navet_music__/spotify/callback',
+      })
+    ).toBe(true);
+
+    for (const spotifyRedirectUri of [
+      'http://localhost:5200/callback',
+      'http://192.168.1.20:5200/callback',
+      'https://user@example.com/callback',
+      'https://example.com:70000/callback',
+      'https://example.com\\callback',
+      'javascript:alert(1)',
+    ]) {
+      expect(musicStore.isMusicConfigPatch({ spotifyRedirectUri })).toBe(false);
+    }
+  });
 });

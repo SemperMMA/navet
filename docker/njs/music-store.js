@@ -141,17 +141,32 @@ function isMusicConfigPatch(value) {
   );
 }
 
+function hasUnsafeUrlCharacters(value) {
+  return /[\u0000-\u0020\u007f\\]/.test(value);
+}
+
+function isValidUrlPort(value) {
+  if (!value) return true;
+  if (!/^[0-9]+$/.test(value)) return false;
+  const port = Number(value);
+  return Number.isFinite(port) && port >= 0 && port <= 65535;
+}
+
 function isSecureSpotifyRedirectUri(value) {
-  try {
-    const url = new URL(value);
-    return (
-      url.protocol === 'https:' ||
-      (url.protocol === 'http:' &&
-        (url.hostname === '127.0.0.1' || url.hostname === '[::1]'))
-    );
-  } catch (_error) {
+  if (typeof value !== 'string') return false;
+  const candidate = value.trim();
+  if (!candidate || hasUnsafeUrlCharacters(candidate)) return false;
+
+  const match = /^(https?):\/\/(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9._-]+)(?::([0-9]+))?(?:[/?#].*)?$/i.exec(
+    candidate
+  );
+  if (!match || !match[1] || !match[2] || !isValidUrlPort(match[3] || '')) {
     return false;
   }
+
+  const protocol = match[1].toLowerCase();
+  const hostname = match[2].toLowerCase();
+  return protocol === 'https' || hostname === '127.0.0.1' || hostname === '[::1]';
 }
 
 function readMusicConfig() {
