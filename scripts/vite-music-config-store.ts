@@ -135,7 +135,8 @@ export function isValidMusicServiceConfigPatch(value: unknown): value is MusicSe
   )
 }
 
-export function isAppleMusicDeveloperToken(value: string): boolean {
+export function isAppleMusicDeveloperToken(value: unknown): value is string {
+  if (typeof value !== 'string') return false
   const candidate = value.trim()
   if (candidate.length < 100 || candidate.length > 8192) return false
   return candidate.split('.').length === 3 && /^[A-Za-z0-9._-]+$/.test(candidate)

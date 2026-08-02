@@ -130,9 +130,11 @@ export function MusicProviderSetupPanel({
   const needsSecret = source.id !== 'spotify';
   const isInitialSetup = !status.configured;
   const secretAlreadyConfigured =
-    source.id === 'apple_music' || source.id === 'spotify'
-      ? status.configured
-      : status.secretConfigured === true;
+    source.id === 'soundcloud'
+      ? configuration.soundcloud.secretConfigured === true
+      : source.id === 'youtube_music'
+        ? configuration.youtube.secretConfigured === true
+        : status.configured;
   const appleTokenValid =
     source.id !== 'apple_music' ||
     (secret.trim().length >= 100 && secret.trim().split('.').length === 3);

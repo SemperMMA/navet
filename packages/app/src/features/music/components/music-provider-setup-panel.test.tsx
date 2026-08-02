@@ -1,5 +1,5 @@
 import { renderWithProviders } from '@navet/app/test/render';
-import type { MusicSourceAdapter } from '@navet/core/music';
+import type { MusicAccountStatus, MusicSourceAdapter } from '@navet/core/music';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MusicConfigurationStatus } from '../music-endpoints';
@@ -18,7 +18,7 @@ const youtubeSource: MusicSourceAdapter & { id: 'youtube_music' } = {
     browserPlayback: true,
     playbackHandoff: false,
   },
-  getAccountStatus: vi.fn(async () => ({ state: 'disconnected' })),
+  getAccountStatus: vi.fn(async (): Promise<MusicAccountStatus> => ({ state: 'disconnected' })),
   connect: vi.fn(async () => undefined),
   disconnect: vi.fn(async () => undefined),
   search: vi.fn(async () => []),

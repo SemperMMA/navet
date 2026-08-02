@@ -53,7 +53,9 @@ describe('Spotify music adapter', () => {
   });
 
   it('maps Spotify queueing to play next and rejects unsupported add-to-end', async () => {
-    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL) => new Response(null, { status: 204 })
+    );
     vi.stubGlobal('fetch', fetchMock);
     const track: MusicItem = {
       id: 'track-1',
