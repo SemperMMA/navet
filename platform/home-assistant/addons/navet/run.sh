@@ -12,6 +12,12 @@ HOMEY_REDIRECT_URI="$(bashio::config 'homey_redirect_uri')"
 ALLOW_INSECURE_PROVIDER_TLS="$(bashio::config 'allow_insecure_provider_tls')"
 SPOTIFY_CLIENT_ID="$(bashio::config 'spotify_client_id')"
 SPOTIFY_REDIRECT_URI="$(bashio::config 'spotify_redirect_uri')"
+SOUNDCLOUD_CLIENT_ID="$(bashio::config 'soundcloud_client_id')"
+SOUNDCLOUD_CLIENT_SECRET="$(bashio::config 'soundcloud_client_secret')"
+SOUNDCLOUD_REDIRECT_URI="$(bashio::config 'soundcloud_redirect_uri')"
+YOUTUBE_CLIENT_ID="$(bashio::config 'youtube_client_id')"
+YOUTUBE_CLIENT_SECRET="$(bashio::config 'youtube_client_secret')"
+YOUTUBE_REDIRECT_URI="$(bashio::config 'youtube_redirect_uri')"
 RESOLVED_HASS_PROXY_BASE="http://supervisor/core"
 
 mkdir -p /data
@@ -66,6 +72,12 @@ export NAVET_ALLOW_INSECURE_PROVIDER_TLS="${ALLOW_INSECURE_PROVIDER_TLS}"
 export NAVET_TRUST_HOME_ASSISTANT_INGRESS="true"
 export NAVET_SPOTIFY_CLIENT_ID="${SPOTIFY_CLIENT_ID}"
 export NAVET_SPOTIFY_REDIRECT_URI="${SPOTIFY_REDIRECT_URI}"
+export NAVET_SOUNDCLOUD_CLIENT_ID="${SOUNDCLOUD_CLIENT_ID}"
+export NAVET_SOUNDCLOUD_CLIENT_SECRET="${SOUNDCLOUD_CLIENT_SECRET}"
+export NAVET_SOUNDCLOUD_REDIRECT_URI="${SOUNDCLOUD_REDIRECT_URI}"
+export NAVET_YOUTUBE_CLIENT_ID="${YOUTUBE_CLIENT_ID}"
+export NAVET_YOUTUBE_CLIENT_SECRET="${YOUTUBE_CLIENT_SECRET}"
+export NAVET_YOUTUBE_REDIRECT_URI="${YOUTUBE_REDIRECT_URI}"
 
 if [[ "${DASHBOARD_CONFIG_URL}" == *\"* || "${DASHBOARD_CONFIG_URL}" == *\'* || "${DASHBOARD_CONFIG_URL}" == *";"* ]]; then
   echo "dashboard_config_url must not contain quotes or semicolons" >&2

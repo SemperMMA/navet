@@ -33,15 +33,30 @@ describe('createViteMusicConfigStore', () => {
 
   it('persists music credentials with owner-only file permissions', () => {
     const { filePath, store } = createStore();
+    const appleMusicDeveloperToken = `header.payload.${'signature'.repeat(20)}`;
 
     store.updateConfig({
       spotifyClientId: 'spotify-client-id',
       spotifyRedirectUri: 'https://navet.app/redirect/oauth',
+      appleMusicDeveloperToken,
+      soundcloudClientId: 'soundcloud-client-id',
+      soundcloudClientSecret: 'soundcloud-client-secret',
+      soundcloudRedirectUri: 'https://navet.app/redirect/oauth',
+      youtubeClientId: 'youtube-client-id',
+      youtubeClientSecret: 'youtube-client-secret',
+      youtubeRedirectUri: 'https://navet.app/redirect/oauth',
     });
 
     expect(createViteMusicConfigStore(filePath).getConfig()).toEqual({
       spotifyClientId: 'spotify-client-id',
       spotifyRedirectUri: 'https://navet.app/redirect/oauth',
+      appleMusicDeveloperToken,
+      soundcloudClientId: 'soundcloud-client-id',
+      soundcloudClientSecret: 'soundcloud-client-secret',
+      soundcloudRedirectUri: 'https://navet.app/redirect/oauth',
+      youtubeClientId: 'youtube-client-id',
+      youtubeClientSecret: 'youtube-client-secret',
+      youtubeRedirectUri: 'https://navet.app/redirect/oauth',
     });
     expect(statSync(filePath).mode & 0o777).toBe(0o600);
   });
@@ -61,22 +76,22 @@ describe('createViteMusicConfigStore', () => {
     });
   });
 
-  it('drops legacy Apple developer tokens while preserving Spotify configuration', () => {
+  it('accepts signed Apple developer tokens and rejects malformed values', () => {
     const { filePath } = createStore();
+    const appleMusicDeveloperToken = `header.payload.${'signature'.repeat(20)}`;
     writeFileSync(
       filePath,
       JSON.stringify({
         spotifyClientId: 'spotify-client-id',
-        appleMusicDeveloperToken: 'legacy-user-supplied-token',
+        appleMusicDeveloperToken,
       })
     );
 
     expect(createViteMusicConfigStore(filePath).getConfig()).toEqual({
       spotifyClientId: 'spotify-client-id',
+      appleMusicDeveloperToken,
     });
-    expect(readFileSync(filePath, 'utf8')).not.toContain('legacy-user-supplied-token');
-    expect(
-      isValidMusicServiceConfigPatch({ appleMusicDeveloperToken: 'no-longer-supported' })
-    ).toBe(false);
+    expect(isValidMusicServiceConfigPatch({ appleMusicDeveloperToken })).toBe(true);
+    expect(isValidMusicServiceConfigPatch({ appleMusicDeveloperToken: 'not-a-jwt' })).toBe(false);
   });
 });

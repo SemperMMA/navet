@@ -4,7 +4,7 @@ import react, { reactCompilerPreset } from '@vitejs/plugin-react'
 import { execSync } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import { lookup } from 'node:dns/promises'
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
@@ -59,6 +59,15 @@ import {
   isValidMusicServiceConfigPatch,
 } from '../../scripts/vite-music-config-store'
 import {
+  createViteMusicSessionStore,
+  MUSIC_OAUTH_PENDING_TTL_MS,
+  MUSIC_SESSION_COOKIE_NAME as MUSIC_SESSION_COOKIE_BASE_NAME,
+  type SoundCloudSessionData,
+  type SpotifySessionData,
+  type ViteStoredMusicSession,
+  type YouTubeSessionData,
+} from '../../scripts/vite-music-session-store'
+import {
   createViteOpenHABSessionStore,
   OPENHAB_SESSION_COOKIE_NAME as OPENHAB_SESSION_COOKIE_BASE_NAME,
   type OpenHABSessionData,
@@ -100,8 +109,16 @@ import {
   isPrivateIpAddress,
 } from '../../packages/app/src/utils/rss-proxy-security'
 import { buildHomeAssistantProxyRequestHeaders } from '../../scripts/vite-proxy-request-headers'
+import musicProviderPolicy from '../../docker/njs/music-provider-policy.js'
 
 const repoRoot = path.resolve(__dirname, '../..')
+const {
+  SPOTIFY_OAUTH_SCOPES,
+  hasRequiredSpotifyScopes,
+  isAllowedSoundCloudOperation,
+  isAllowedSpotifyOperation,
+  isAllowedYouTubeOperation,
+} = musicProviderPolicy
 type VitePwaManifestTransform = NonNullable<
   VitePWAOptions['workbox']['manifestTransforms']
 >[number]
@@ -150,6 +167,8 @@ const DISABLED_INSTALLATION_AUTHORITY: ViteInstallationAuthority = {
   getCookieNames: (baseName) => createInstallationCookieNames(baseName),
 }
 const NAVET_SPOTIFY_OAUTH_RELAY_URI = 'https://navet.app/redirect/oauth'
+const NAVET_SOUNDCLOUD_OAUTH_RELAY_URI = 'https://navet.app/redirect/oauth'
+const NAVET_YOUTUBE_OAUTH_RELAY_URI = 'https://navet.app/redirect/oauth'
 const NAVET_APPLE_MUSIC_DEVELOPER_TOKEN_URL =
   'https://navet.app/api/music/apple/developer-token'
 
@@ -2755,36 +2774,19 @@ function openhabSessionStorePlugin(
   }
 }
 
-function musicServicePlugin() {
-  type SpotifySession = {
-    accessToken: string
-    refreshToken: string
-    expiresAt: number
-    displayName?: string
-    subscription?: string
-    scope?: string
-  }
+function musicServicePlugin(installationAuthority: ViteInstallationAuthority) {
   const spotifySessionPath = path.resolve(__dirname, '.cache/navet-music-spotify-session.json')
-  const loadSpotifySession = (): SpotifySession | null => {
-    try {
-      const value = JSON.parse(readFileSync(spotifySessionPath, 'utf8')) as SpotifySession
-      return value?.accessToken && value?.refreshToken && value?.expiresAt ? value : null
-    } catch {
-      return null
-    }
-  }
-  const persistSpotifySession = (value: SpotifySession | null) => {
-    if (!value) {
-      rmSync(spotifySessionPath, { force: true })
-      return
-    }
-    mkdirSync(path.dirname(spotifySessionPath), { recursive: true })
-    const temporaryPath = `${spotifySessionPath}.tmp`
-    writeFileSync(temporaryPath, JSON.stringify(value), { encoding: 'utf8', mode: 0o600 })
-    renameSync(temporaryPath, spotifySessionPath)
-  }
-  let session: SpotifySession | null = loadSpotifySession()
-  let pending: { verifier: string; state: string; createdAt: number } | null = null
+  const MUSIC_SESSION_COOKIE_NAME = installationAuthority.getCookieNames(
+    MUSIC_SESSION_COOKIE_BASE_NAME
+  )
+  const musicSessionStore = createViteMusicSessionStore({
+    cookieNames: MUSIC_SESSION_COOKIE_NAME,
+    legacySessionPath: spotifySessionPath,
+    sessionsDirectory: path.resolve(
+      __dirname,
+      '.cache/navet-provider-sessions/music'
+    ),
+  })
   let cachedAppleMusicDeveloperToken: { value: string; expiresAt: number } | null = null
   const musicConfigStore = createViteMusicConfigStore()
 
@@ -2797,11 +2799,6 @@ function musicServicePlugin() {
 
   const base64Url = (value: Buffer) =>
     value.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-
-  const getOrigin = (req: IncomingMessage) => {
-    const protocol = String(req.headers['x-forwarded-proto'] ?? 'http').split(',')[0]?.trim()
-    return `${protocol}://${req.headers.host ?? 'navet.local:5200'}`
-  }
 
   const readRequestBody = async (req: IncomingMessage, maxBytes = 32 * 1024) => {
     const chunks: Buffer[] = []
@@ -2823,6 +2820,26 @@ function musicServicePlugin() {
       stored.spotifyRedirectUri ??
       process.env.NAVET_SPOTIFY_REDIRECT_URI?.trim() ??
       NAVET_SPOTIFY_OAUTH_RELAY_URI
+    const appleMusicDeveloperToken =
+      stored.appleMusicDeveloperToken ?? process.env.NAVET_APPLE_MUSIC_DEVELOPER_TOKEN?.trim() ?? ''
+    const soundcloudClientId =
+      stored.soundcloudClientId ?? process.env.NAVET_SOUNDCLOUD_CLIENT_ID?.trim() ?? ''
+    const soundcloudClientSecret =
+      stored.soundcloudClientSecret ??
+      process.env.NAVET_SOUNDCLOUD_CLIENT_SECRET?.trim() ??
+      ''
+    const soundcloudRedirectUri =
+      stored.soundcloudRedirectUri ??
+      process.env.NAVET_SOUNDCLOUD_REDIRECT_URI?.trim() ??
+      NAVET_SOUNDCLOUD_OAUTH_RELAY_URI
+    const youtubeClientId =
+      stored.youtubeClientId ?? process.env.NAVET_YOUTUBE_CLIENT_ID?.trim() ?? ''
+    const youtubeClientSecret =
+      stored.youtubeClientSecret ?? process.env.NAVET_YOUTUBE_CLIENT_SECRET?.trim() ?? ''
+    const youtubeRedirectUri =
+      stored.youtubeRedirectUri ??
+      process.env.NAVET_YOUTUBE_REDIRECT_URI?.trim() ??
+      NAVET_YOUTUBE_OAUTH_RELAY_URI
 
     return {
       spotifyClientId,
@@ -2832,6 +2849,30 @@ function musicServicePlugin() {
         : spotifyClientId
           ? 'environment'
           : 'none',
+      appleMusicDeveloperToken,
+      appleMusicSource: stored.appleMusicDeveloperToken
+        ? 'stored'
+        : appleMusicDeveloperToken
+          ? 'environment'
+          : 'hosted',
+      soundcloudClientId,
+      soundcloudClientSecret,
+      soundcloudRedirectUri,
+      soundcloudSource:
+        stored.soundcloudClientId || stored.soundcloudClientSecret
+          ? 'stored'
+          : soundcloudClientId && soundcloudClientSecret
+            ? 'environment'
+            : 'none',
+      youtubeClientId,
+      youtubeClientSecret,
+      youtubeRedirectUri,
+      youtubeSource:
+        stored.youtubeClientId || stored.youtubeClientSecret
+          ? 'stored'
+          : youtubeClientId && youtubeClientSecret
+            ? 'environment'
+            : 'none',
     } as const
   }
 
@@ -2844,12 +2885,32 @@ function musicServicePlugin() {
         clientIdHint: config.spotifyClientId ? config.spotifyClientId.slice(-4) : null,
         redirectUri: config.spotifyRedirectUri,
       },
+      apple: {
+        configured: Boolean(config.appleMusicDeveloperToken),
+        source: config.appleMusicSource,
+      },
+      soundcloud: {
+        configured: Boolean(config.soundcloudClientId && config.soundcloudClientSecret),
+        source: config.soundcloudSource,
+        secretConfigured: Boolean(config.soundcloudClientSecret),
+        clientIdHint: config.soundcloudClientId
+          ? config.soundcloudClientId.slice(-4)
+          : null,
+        redirectUri: config.soundcloudRedirectUri,
+      },
+      youtube: {
+        configured: Boolean(config.youtubeClientId && config.youtubeClientSecret),
+        source: config.youtubeSource,
+        secretConfigured: Boolean(config.youtubeClientSecret),
+        clientIdHint: config.youtubeClientId ? config.youtubeClientId.slice(-4) : null,
+        redirectUri: config.youtubeRedirectUri,
+      },
     }
   }
 
   const resolveAppleMusicDeveloperToken = async () => {
-    const environmentToken = process.env.NAVET_APPLE_MUSIC_DEVELOPER_TOKEN?.trim()
-    if (environmentToken) return environmentToken
+    const configuredToken = getEffectiveConfig().appleMusicDeveloperToken
+    if (configuredToken) return configuredToken
     if (cachedAppleMusicDeveloperToken?.expiresAt && cachedAppleMusicDeveloperToken.expiresAt > Date.now()) {
       return cachedAppleMusicDeveloperToken.value
     }
@@ -2873,7 +2934,7 @@ function musicServicePlugin() {
   }
 
   const getLocalSpotifyCallbackUri = (req: IncomingMessage) =>
-    `${getOrigin(req)}/__navet_music__/spotify/callback`
+    `${getViteProviderRequestOrigin(req)}/__navet_music__/spotify/callback`
 
   const getSpotifyAuthorizeLocation = (
     redirectUri: string,
@@ -2904,111 +2965,390 @@ function musicServicePlugin() {
     }
   }
 
-  const refreshSession = async () => {
-    if (!session || session.expiresAt > Date.now() + 30_000) return session
+  type MusicSessionContext = {
+    cookieId: string
+    session: ViteStoredMusicSession
+  }
+
+  const writeMusicSession = (
+    context: MusicSessionContext,
+    overrides: Partial<
+      Pick<
+        ViteStoredMusicSession,
+        'auth' | 'pending' | 'soundcloudAuth' | 'soundcloudPending'
+        | 'youtubeAuth'
+        | 'youtubePending'
+      >
+    >
+  ) => {
+    const persisted = musicSessionStore.readSession(context.cookieId)
+    const next: ViteStoredMusicSession = {
+      ...(persisted ?? context.session),
+      ...overrides,
+      updatedAt: Date.now(),
+    }
+    musicSessionStore.writeSession(context.cookieId, next)
+    context.session = next
+    return next
+  }
+
+  const refreshSession = async (
+    req: IncomingMessage,
+    res: ServerResponse,
+    context: MusicSessionContext | null
+  ) => {
+    if (!context?.session.auth) return null
+    const latest = musicSessionStore.readSession(context.cookieId)
+    if (!latest?.auth) return null
+    context.session = latest
+    const session = latest.auth
+    if (session.expiresAt > Date.now() + 30_000) {
+      setViteProviderSessionCookie(req, res, MUSIC_SESSION_COOKIE_NAME, context.cookieId)
+      return session
+    }
     const clientId = getEffectiveConfig().spotifyClientId
     if (!clientId) throw new Error('Spotify is not configured')
-    const token = await exchangeToken(
-      new URLSearchParams({
-        grant_type: 'refresh_token',
-        refresh_token: session.refreshToken,
-        client_id: clientId,
-      })
-    )
-    session = {
+    let token: Awaited<ReturnType<typeof exchangeToken>>
+    try {
+      token = await exchangeToken(
+        new URLSearchParams({
+          grant_type: 'refresh_token',
+          refresh_token: session.refreshToken,
+          client_id: clientId,
+        })
+      )
+    } catch (error) {
+      const concurrent = musicSessionStore.readSession(context.cookieId)
+      if (
+        concurrent?.auth &&
+        (concurrent.auth.accessToken !== session.accessToken ||
+          concurrent.auth.expiresAt > session.expiresAt)
+      ) {
+        context.session = concurrent
+        return concurrent.auth
+      }
+      throw error
+    }
+    const nextSession: SpotifySessionData = {
       ...session,
       accessToken: token.access_token,
       refreshToken: token.refresh_token ?? session.refreshToken,
       expiresAt: Date.now() + token.expires_in * 1000,
       scope: token.scope ?? session.scope,
     }
-    persistSpotifySession(session)
-    return session
+    writeMusicSession(context, { auth: nextSession })
+    setViteProviderSessionCookie(req, res, MUSIC_SESSION_COOKIE_NAME, context.cookieId)
+    return nextSession
+  }
+
+  const getSoundCloudAuthorizeLocation = (
+    redirectUri: string,
+    localCallbackUri: string,
+    soundcloudAuthorizeUri: string
+  ) => {
+    if (redirectUri !== NAVET_SOUNDCLOUD_OAUTH_RELAY_URI) {
+      return soundcloudAuthorizeUri
+    }
+    const relay = new URL(`${NAVET_SOUNDCLOUD_OAUTH_RELAY_URI}/`)
+    relay.hash = new URLSearchParams({
+      instance: localCallbackUri,
+      authorize: soundcloudAuthorizeUri,
+      provider: 'soundcloud',
+    }).toString()
+    return relay.toString()
+  }
+
+  const exchangeSoundCloudToken = async (body: URLSearchParams) => {
+    const response = await fetch('https://secure.soundcloud.com/oauth/token', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json; charset=utf-8',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body,
+    })
+    if (!response.ok) throw new Error('SoundCloud token exchange failed')
+    const token = (await response.json()) as {
+      access_token?: unknown
+      refresh_token?: unknown
+      expires_in?: unknown
+      scope?: unknown
+    }
+    const expiresIn = Number(token.expires_in)
+    if (
+      typeof token.access_token !== 'string' ||
+      !token.access_token ||
+      typeof token.refresh_token !== 'string' ||
+      !token.refresh_token ||
+      !Number.isFinite(expiresIn) ||
+      expiresIn <= 0
+    ) {
+      throw new Error('SoundCloud returned an invalid credential')
+    }
+    return {
+      accessToken: token.access_token,
+      refreshToken: token.refresh_token,
+      expiresIn,
+      scope: typeof token.scope === 'string' ? token.scope : undefined,
+    }
+  }
+
+  const refreshSoundCloudSession = async (
+    req: IncomingMessage,
+    res: ServerResponse,
+    context: MusicSessionContext | null
+  ) => {
+    if (!context?.session.soundcloudAuth) return null
+    const latest = musicSessionStore.readSession(context.cookieId)
+    if (!latest?.soundcloudAuth) return null
+    context.session = latest
+    const session = latest.soundcloudAuth
+    if (session.expiresAt > Date.now() + 30_000) {
+      setViteProviderSessionCookie(req, res, MUSIC_SESSION_COOKIE_NAME, context.cookieId)
+      return session
+    }
+    const config = getEffectiveConfig()
+    if (!config.soundcloudClientId || !config.soundcloudClientSecret) {
+      throw new Error('SoundCloud is not configured')
+    }
+    let token: Awaited<ReturnType<typeof exchangeSoundCloudToken>>
+    try {
+      token = await exchangeSoundCloudToken(
+        new URLSearchParams({
+          grant_type: 'refresh_token',
+          client_id: config.soundcloudClientId,
+          client_secret: config.soundcloudClientSecret,
+          refresh_token: session.refreshToken,
+        })
+      )
+    } catch (error) {
+      const concurrent = musicSessionStore.readSession(context.cookieId)
+      if (
+        concurrent?.soundcloudAuth &&
+        (concurrent.soundcloudAuth.accessToken !== session.accessToken ||
+          concurrent.soundcloudAuth.expiresAt > session.expiresAt)
+      ) {
+        context.session = concurrent
+        return concurrent.soundcloudAuth
+      }
+      throw error
+    }
+    const nextSession: SoundCloudSessionData = {
+      ...session,
+      accessToken: token.accessToken,
+      refreshToken: token.refreshToken,
+      expiresAt: Date.now() + token.expiresIn * 1000,
+      scope: token.scope ?? session.scope,
+    }
+    writeMusicSession(context, { soundcloudAuth: nextSession })
+    setViteProviderSessionCookie(req, res, MUSIC_SESSION_COOKIE_NAME, context.cookieId)
+    return nextSession
+  }
+
+  const getYouTubeAuthorizeLocation = (
+    redirectUri: string,
+    localCallbackUri: string,
+    youtubeAuthorizeUri: string
+  ) => {
+    if (redirectUri !== NAVET_YOUTUBE_OAUTH_RELAY_URI) return youtubeAuthorizeUri
+    const relay = new URL(`${NAVET_YOUTUBE_OAUTH_RELAY_URI}/`)
+    relay.hash = new URLSearchParams({
+      instance: localCallbackUri,
+      authorize: youtubeAuthorizeUri,
+      provider: 'youtube',
+    }).toString()
+    return relay.toString()
+  }
+
+  const exchangeYouTubeToken = async (
+    body: URLSearchParams,
+    fallbackRefreshToken = ''
+  ) => {
+    const response = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body,
+    })
+    if (!response.ok) throw new Error('YouTube token exchange failed')
+    const token = (await response.json()) as {
+      access_token?: unknown
+      refresh_token?: unknown
+      expires_in?: unknown
+      scope?: unknown
+    }
+    const expiresIn = Number(token.expires_in)
+    const refreshToken =
+      typeof token.refresh_token === 'string' && token.refresh_token
+        ? token.refresh_token
+        : fallbackRefreshToken
+    if (
+      typeof token.access_token !== 'string' ||
+      !token.access_token ||
+      !refreshToken ||
+      !Number.isFinite(expiresIn) ||
+      expiresIn <= 0
+    ) {
+      throw new Error('YouTube returned an invalid credential')
+    }
+    return {
+      accessToken: token.access_token,
+      refreshToken,
+      expiresIn,
+      scope: typeof token.scope === 'string' ? token.scope : undefined,
+    }
+  }
+
+  const refreshYouTubeSession = async (
+    req: IncomingMessage,
+    res: ServerResponse,
+    context: MusicSessionContext | null
+  ) => {
+    if (!context?.session.youtubeAuth) return null
+    const latest = musicSessionStore.readSession(context.cookieId)
+    if (!latest?.youtubeAuth) return null
+    context.session = latest
+    const session = latest.youtubeAuth
+    if (session.expiresAt > Date.now() + 30_000) {
+      setViteProviderSessionCookie(req, res, MUSIC_SESSION_COOKIE_NAME, context.cookieId)
+      return session
+    }
+    const config = getEffectiveConfig()
+    if (!config.youtubeClientId || !config.youtubeClientSecret) {
+      throw new Error('YouTube is not configured')
+    }
+    let token: Awaited<ReturnType<typeof exchangeYouTubeToken>>
+    try {
+      token = await exchangeYouTubeToken(
+        new URLSearchParams({
+          client_id: config.youtubeClientId,
+          client_secret: config.youtubeClientSecret,
+          grant_type: 'refresh_token',
+          refresh_token: session.refreshToken,
+        }),
+        session.refreshToken
+      )
+    } catch (error) {
+      const concurrent = musicSessionStore.readSession(context.cookieId)
+      if (
+        concurrent?.youtubeAuth &&
+        (concurrent.youtubeAuth.accessToken !== session.accessToken ||
+          concurrent.youtubeAuth.expiresAt > session.expiresAt)
+      ) {
+        context.session = concurrent
+        return concurrent.youtubeAuth
+      }
+      throw error
+    }
+    const nextSession: YouTubeSessionData = {
+      ...session,
+      accessToken: token.accessToken,
+      refreshToken: token.refreshToken,
+      expiresAt: Date.now() + token.expiresIn * 1000,
+      scope: token.scope ?? session.scope,
+    }
+    writeMusicSession(context, { youtubeAuth: nextSession })
+    setViteProviderSessionCookie(req, res, MUSIC_SESSION_COOKIE_NAME, context.cookieId)
+    return nextSession
   }
 
   const handle = async (req: IncomingMessage, res: ServerResponse) => {
-    const requestUrl = new URL(req.url ?? '/', getOrigin(req))
+    const requestUrl = new URL(req.url ?? '/', getViteProviderRequestOrigin(req))
     const pathname = requestUrl.pathname
     const effectiveConfig = getEffectiveConfig()
     const clientId = effectiveConfig.spotifyClientId
     const redirectUri = effectiveConfig.spotifyRedirectUri
+    const soundcloudClientId = effectiveConfig.soundcloudClientId
+    const soundcloudClientSecret = effectiveConfig.soundcloudClientSecret
+    const soundcloudRedirectUri = effectiveConfig.soundcloudRedirectUri
+    const youtubeClientId = effectiveConfig.youtubeClientId
+    const youtubeClientSecret = effectiveConfig.youtubeClientSecret
+    const youtubeRedirectUri = effectiveConfig.youtubeRedirectUri
 
     if (pathname === '/config') {
       if (req.method === 'GET') {
         return sendJson(res, 200, getConfigStatus())
       }
       if (req.method === 'PUT') {
-        try {
-          const body = await readRequestBody(req)
-          const parsed = JSON.parse(body) as unknown
-          if (!isValidMusicServiceConfigPatch(parsed)) {
-            return sendJson(res, 400, { error: 'Unsupported music configuration' })
-          }
-          musicConfigStore.updateConfig(parsed)
-          if ('spotifyClientId' in parsed || 'spotifyRedirectUri' in parsed) {
-            session = null
-            persistSpotifySession(null)
-            pending = null
-          }
-          return sendJson(res, 200, getConfigStatus())
-        } catch (error) {
-          return sendJson(
-            res,
-            error instanceof Error && error.message === 'Music service request is too large'
-              ? 413
-              : 400,
-            { error: 'Unable to save music configuration' }
-          )
+        if (!isViteStrictSameOriginMutation(req)) {
+          return sendJson(res, 403, { error: 'Cross-origin music configuration is not allowed' })
         }
-      }
-      if (req.method === 'DELETE') {
-        musicConfigStore.clearConfig()
-        session = null
-        persistSpotifySession(null)
-        pending = null
+        let patch: unknown
+        try {
+          patch = JSON.parse(await readRequestBody(req))
+        } catch {
+          return sendJson(res, 400, { error: 'Invalid music configuration' })
+        }
+        if (!isValidMusicServiceConfigPatch(patch)) {
+          return sendJson(res, 400, { error: 'Invalid music configuration' })
+        }
+        musicConfigStore.updateConfig(patch)
+        cachedAppleMusicDeveloperToken = null
         return sendJson(res, 200, getConfigStatus())
       }
-      res.setHeader('Allow', 'GET, PUT, DELETE')
+      res.setHeader('Allow', 'GET, PUT')
       return sendJson(res, 405, { error: 'Method not allowed' })
     }
 
     if (pathname === '/spotify/authorize') {
+      if (req.method !== 'POST') {
+        res.setHeader('Allow', 'POST')
+        return sendJson(res, 405, { error: 'Method not allowed' })
+      }
+      if (!isViteStrictSameOriginMutation(req)) {
+        return sendJson(res, 403, { error: 'Cross-origin OAuth start is not allowed' })
+      }
       if (!clientId) return sendJson(res, 503, { error: 'Spotify is not configured' })
       const verifier = base64Url(randomBytes(64))
-      const state = base64Url(randomBytes(32))
-      pending = { verifier, state, createdAt: Date.now() }
+      const state = createViteProviderState()
+      const context = createViteProviderRequestSession(
+        req,
+        res,
+        MUSIC_SESSION_COOKIE_NAME,
+        musicSessionStore
+      )
+      writeMusicSession(context, {
+        pending: {
+          verifier,
+          state,
+          expiresAt: Date.now() + MUSIC_OAUTH_PENDING_TTL_MS,
+        },
+      })
       const challenge = base64Url(createHash('sha256').update(verifier).digest())
       const params = new URLSearchParams({
         response_type: 'code',
         client_id: clientId,
         redirect_uri: redirectUri,
-        scope:
-          'user-read-private user-library-read user-read-playback-state user-modify-playback-state user-read-currently-playing user-read-recently-played user-top-read streaming',
+        scope: SPOTIFY_OAUTH_SCOPES.join(' '),
         state,
         code_challenge_method: 'S256',
         code_challenge: challenge,
       })
       const spotifyAuthorizeUri = `https://accounts.spotify.com/authorize?${params}`
-      res.statusCode = 302
-      res.setHeader(
-        'Location',
-        getSpotifyAuthorizeLocation(
+      return sendJson(res, 200, {
+        authorizationUrl: getSpotifyAuthorizeLocation(
           redirectUri,
           getLocalSpotifyCallbackUri(req),
           spotifyAuthorizeUri
-        )
-      )
-      res.end()
-      return
+        ),
+      })
     }
 
     if (pathname === '/spotify/callback') {
+      const context = getViteProviderRequestSession(
+        req,
+        MUSIC_SESSION_COOKIE_NAME,
+        musicSessionStore
+      )
+      const pending = context?.session.pending
       const valid =
         pending &&
-        Date.now() - pending.createdAt < 10 * 60_000 &&
+        pending.expiresAt >= Date.now() &&
         requestUrl.searchParams.get('state') === pending.state
       const code = requestUrl.searchParams.get('code')
-      if (!valid || !code || !pending) {
+      if (!valid || !code || !pending || !context) {
         res.statusCode = 302
         res.setHeader('Location', '/music?music_oauth=spotify&status=failed')
         res.end()
@@ -3024,9 +3364,10 @@ function musicServicePlugin() {
             code_verifier: pending.verifier,
           })
         )
-        session = {
+        if (!token.refresh_token) throw new Error('Spotify did not return a refresh token')
+        const session: SpotifySessionData = {
           accessToken: token.access_token,
-          refreshToken: token.refresh_token ?? '',
+          refreshToken: token.refresh_token,
           expiresAt: Date.now() + token.expires_in * 1000,
           scope: token.scope,
         }
@@ -3042,12 +3383,25 @@ function musicServicePlugin() {
           session.displayName = profile.display_name ?? profile.id
           session.subscription = profile.product
         }
-        pending = null
-        persistSpotifySession(session)
+        const latest = musicSessionStore.readSession(context.cookieId) ?? context.session
+        rotateViteProviderRequestSession(
+          req,
+          res,
+          MUSIC_SESSION_COOKIE_NAME,
+          musicSessionStore,
+          context.cookieId,
+          {
+            ...latest,
+            auth: session,
+            pending: null,
+            updatedAt: Date.now(),
+          }
+        )
         res.statusCode = 302
         res.setHeader('Location', '/music?music_oauth=spotify&status=connected')
         res.end()
       } catch {
+        writeMusicSession(context, { pending: null })
         res.statusCode = 302
         res.setHeader('Location', '/music?music_oauth=spotify&status=failed')
         res.end()
@@ -3057,38 +3411,591 @@ function musicServicePlugin() {
 
     if (pathname === '/spotify/status') {
       if (!clientId) {
-        return sendJson(res, 200, { state: 'unavailable', reason: 'Spotify is not configured' })
+        return sendJson(res, 200, {
+          state: 'unavailable',
+          reason: 'Spotify is not configured for this Navet installation',
+          canConnect: false,
+        })
       }
-      if (!session) return sendJson(res, 200, { state: 'disconnected' })
-      await refreshSession()
-      return sendJson(res, 200, {
-        state: 'connected',
-        displayName: session?.displayName,
-        subscription: session?.subscription,
-      })
+      const context = getViteProviderRequestSession(
+        req,
+        MUSIC_SESSION_COOKIE_NAME,
+        musicSessionStore
+      )
+      try {
+        const session = await refreshSession(req, res, context)
+        if (!session) return sendJson(res, 200, { state: 'disconnected' })
+        if (!hasRequiredSpotifyScopes(session.scope)) {
+          return sendJson(res, 200, {
+            state: 'unavailable',
+            reason:
+              'Reconnect Spotify to grant Navet the latest library and playback permissions.',
+            canConnect: true,
+          })
+        }
+        return sendJson(res, 200, {
+          state: 'connected',
+          displayName: session.displayName,
+          subscription: session.subscription,
+        })
+      } catch {
+        return sendJson(res, 200, {
+          state: 'unavailable',
+          reason: 'Spotify could not refresh this browser session. Retry or reconnect.',
+        })
+      }
+    }
+
+    if (pathname === '/spotify/sdk-token') {
+      if (req.method !== 'GET') {
+        res.setHeader('Allow', 'GET')
+        return sendJson(res, 405, { error: 'Method not allowed' })
+      }
+      const context = getViteProviderRequestSession(
+        req,
+        MUSIC_SESSION_COOKIE_NAME,
+        musicSessionStore
+      )
+      if (!context?.session.auth) return sendJson(res, 401, { error: 'Connect Spotify first' })
+      try {
+        const active = await refreshSession(req, res, context)
+        if (!active) return sendJson(res, 401, { error: 'Connect Spotify first' })
+        if (!active.scope?.split(/\s+/).includes('streaming')) {
+          return sendJson(res, 409, {
+            error: 'Reconnect Spotify to enable playback on this Navet display',
+          })
+        }
+        return sendJson(res, 200, {
+          accessToken: active.accessToken,
+          expiresAt: active.expiresAt,
+        })
+      } catch {
+        return sendJson(res, 502, { error: 'Spotify could not refresh browser playback' })
+      }
     }
 
     if (pathname === '/spotify/session' && req.method === 'DELETE') {
-      session = null
-      persistSpotifySession(null)
+      if (!isViteStrictSameOriginMutation(req)) {
+        return sendJson(res, 403, { error: 'Cross-origin session mutation is not allowed' })
+      }
+      const context = getViteProviderRequestSession(
+        req,
+        MUSIC_SESSION_COOKIE_NAME,
+        musicSessionStore
+      )
+      if (context) {
+        const next = writeMusicSession(context, { auth: null, pending: null })
+        if (
+          next.soundcloudAuth ||
+          next.soundcloudPending ||
+          next.youtubeAuth ||
+          next.youtubePending
+        ) {
+          setViteProviderSessionCookie(req, res, MUSIC_SESSION_COOKIE_NAME, context.cookieId)
+        } else {
+          musicSessionStore.deleteSession(context.cookieId)
+          clearViteProviderSessionCookie(
+            req,
+            res,
+            MUSIC_SESSION_COOKIE_NAME,
+            musicSessionStore
+          )
+        }
+      } else {
+        clearViteProviderSessionCookie(
+          req,
+          res,
+          MUSIC_SESSION_COOKIE_NAME,
+          musicSessionStore
+        )
+      }
       return sendJson(res, 200, { ok: true })
     }
 
     if (pathname.startsWith('/spotify/api/v1/')) {
-      const active = await refreshSession()
-      if (!active) return sendJson(res, 401, { error: 'Connect Spotify first' })
       const upstreamPath = pathname.slice('/spotify/api'.length)
+      const method = req.method ?? 'GET'
+      const allowedRoute = isAllowedSpotifyOperation(method, upstreamPath)
+      if (!allowedRoute) return sendJson(res, 404, { error: 'Unsupported Spotify operation' })
+      if (!['GET', 'HEAD'].includes(method) && !isViteStrictSameOriginMutation(req)) {
+        return sendJson(res, 403, { error: 'Cross-origin playback control is not allowed' })
+      }
+      const context = getViteProviderRequestSession(
+        req,
+        MUSIC_SESSION_COOKIE_NAME,
+        musicSessionStore
+      )
+      const active = await refreshSession(req, res, context)
+      if (!active) return sendJson(res, 401, { error: 'Connect Spotify first' })
       const body =
-        req.method && !['GET', 'HEAD'].includes(req.method)
+        !['GET', 'HEAD'].includes(method)
           ? await readRequestBody(req)
           : undefined
       const upstream = await fetch(
         `https://api.spotify.com${upstreamPath}${requestUrl.search}`,
         {
-          method: req.method,
+          method,
           headers: {
             Authorization: `Bearer ${active.accessToken}`,
             Accept: 'application/json',
+            'Content-Type': String(req.headers['content-type'] ?? 'application/json'),
+          },
+          body: body || undefined,
+        }
+      )
+      res.statusCode = upstream.status
+      res.setHeader('Cache-Control', 'no-store')
+      res.setHeader('Content-Type', upstream.headers.get('content-type') ?? 'application/json')
+      res.end(await upstream.text())
+      return
+    }
+
+    if (pathname === '/soundcloud/authorize') {
+      if (req.method !== 'POST') {
+        res.setHeader('Allow', 'POST')
+        return sendJson(res, 405, { error: 'Method not allowed' })
+      }
+      if (!isViteStrictSameOriginMutation(req)) {
+        return sendJson(res, 403, { error: 'Cross-origin OAuth start is not allowed' })
+      }
+      if (!soundcloudClientId || !soundcloudClientSecret) {
+        return sendJson(res, 503, { error: 'SoundCloud is not configured' })
+      }
+      const verifier = base64Url(randomBytes(64))
+      const challenge = base64Url(createHash('sha256').update(verifier).digest())
+      const state = createViteProviderState()
+      const context = createViteProviderRequestSession(
+        req,
+        res,
+        MUSIC_SESSION_COOKIE_NAME,
+        musicSessionStore
+      )
+      writeMusicSession(context, {
+        soundcloudPending: {
+          verifier,
+          state,
+          expiresAt: Date.now() + MUSIC_OAUTH_PENDING_TTL_MS,
+        },
+      })
+      const params = new URLSearchParams({
+        client_id: soundcloudClientId,
+        redirect_uri: soundcloudRedirectUri,
+        response_type: 'code',
+        code_challenge: challenge,
+        code_challenge_method: 'S256',
+        state,
+      })
+      const authorizationUri = `https://secure.soundcloud.com/authorize?${params}`
+      return sendJson(res, 200, {
+        authorizationUrl: getSoundCloudAuthorizeLocation(
+          soundcloudRedirectUri,
+          `${getViteProviderRequestOrigin(req)}/__navet_music__/soundcloud/callback`,
+          authorizationUri
+        ),
+      })
+    }
+
+    if (pathname === '/soundcloud/callback') {
+      const context = getViteProviderRequestSession(
+        req,
+        MUSIC_SESSION_COOKIE_NAME,
+        musicSessionStore
+      )
+      const pending = context?.session.soundcloudPending
+      const code = requestUrl.searchParams.get('code')
+      const valid =
+        pending &&
+        pending.expiresAt >= Date.now() &&
+        requestUrl.searchParams.get('state') === pending.state
+      if (!valid || !code || !pending || !context) {
+        res.statusCode = 302
+        res.setHeader('Location', '/music?music_oauth=soundcloud&status=failed')
+        res.end()
+        return
+      }
+      try {
+        const token = await exchangeSoundCloudToken(
+          new URLSearchParams({
+            grant_type: 'authorization_code',
+            client_id: soundcloudClientId,
+            client_secret: soundcloudClientSecret,
+            redirect_uri: soundcloudRedirectUri,
+            code_verifier: pending.verifier,
+            code,
+          })
+        )
+        const session: SoundCloudSessionData = {
+          accessToken: token.accessToken,
+          refreshToken: token.refreshToken,
+          expiresAt: Date.now() + token.expiresIn * 1000,
+          scope: token.scope,
+        }
+        const profileResponse = await fetch('https://api.soundcloud.com/me', {
+          headers: {
+            Accept: 'application/json; charset=utf-8',
+            Authorization: `OAuth ${session.accessToken}`,
+          },
+        })
+        if (profileResponse.ok) {
+          const profile = (await profileResponse.json()) as {
+            avatar_url?: unknown
+            full_name?: unknown
+            username?: unknown
+          }
+          session.displayName =
+            typeof profile.full_name === 'string' && profile.full_name
+              ? profile.full_name
+              : typeof profile.username === 'string'
+                ? profile.username
+                : undefined
+          session.avatarUrl =
+            typeof profile.avatar_url === 'string' ? profile.avatar_url : undefined
+        }
+        const latest = musicSessionStore.readSession(context.cookieId) ?? context.session
+        rotateViteProviderRequestSession(
+          req,
+          res,
+          MUSIC_SESSION_COOKIE_NAME,
+          musicSessionStore,
+          context.cookieId,
+          {
+            ...latest,
+            soundcloudAuth: session,
+            soundcloudPending: null,
+            updatedAt: Date.now(),
+          }
+        )
+        res.statusCode = 302
+        res.setHeader('Location', '/music?music_oauth=soundcloud&status=connected')
+        res.end()
+      } catch {
+        writeMusicSession(context, { soundcloudPending: null })
+        res.statusCode = 302
+        res.setHeader('Location', '/music?music_oauth=soundcloud&status=failed')
+        res.end()
+      }
+      return
+    }
+
+    if (pathname === '/soundcloud/status') {
+      if (!soundcloudClientId || !soundcloudClientSecret) {
+        return sendJson(res, 200, {
+          state: 'unavailable',
+          reason: 'SoundCloud is not configured for this Navet installation',
+          canConnect: false,
+        })
+      }
+      const context = getViteProviderRequestSession(
+        req,
+        MUSIC_SESSION_COOKIE_NAME,
+        musicSessionStore
+      )
+      try {
+        const session = await refreshSoundCloudSession(req, res, context)
+        if (!session) return sendJson(res, 200, { state: 'disconnected' })
+        return sendJson(res, 200, {
+          state: 'connected',
+          displayName: session.displayName,
+        })
+      } catch {
+        return sendJson(res, 200, {
+          state: 'unavailable',
+          reason: 'SoundCloud could not refresh this browser session. Retry or reconnect.',
+        })
+      }
+    }
+
+    if (pathname === '/soundcloud/session' && req.method === 'DELETE') {
+      if (!isViteStrictSameOriginMutation(req)) {
+        return sendJson(res, 403, { error: 'Cross-origin session mutation is not allowed' })
+      }
+      const context = getViteProviderRequestSession(
+        req,
+        MUSIC_SESSION_COOKIE_NAME,
+        musicSessionStore
+      )
+      if (context) {
+        const next = writeMusicSession(context, {
+          soundcloudAuth: null,
+          soundcloudPending: null,
+        })
+        if (next.auth || next.pending || next.youtubeAuth || next.youtubePending) {
+          setViteProviderSessionCookie(req, res, MUSIC_SESSION_COOKIE_NAME, context.cookieId)
+        } else {
+          musicSessionStore.deleteSession(context.cookieId)
+          clearViteProviderSessionCookie(
+            req,
+            res,
+            MUSIC_SESSION_COOKIE_NAME,
+            musicSessionStore
+          )
+        }
+      } else {
+        clearViteProviderSessionCookie(
+          req,
+          res,
+          MUSIC_SESSION_COOKIE_NAME,
+          musicSessionStore
+        )
+      }
+      return sendJson(res, 200, { ok: true })
+    }
+
+    if (pathname.startsWith('/soundcloud/api/')) {
+      const upstreamPath = pathname.slice('/soundcloud/api'.length)
+      const method = req.method ?? 'GET'
+      const allowed = isAllowedSoundCloudOperation(method, upstreamPath)
+      if (!allowed) return sendJson(res, 404, { error: 'Unsupported SoundCloud operation' })
+      if (!['GET', 'HEAD'].includes(method) && !isViteStrictSameOriginMutation(req)) {
+        return sendJson(res, 403, { error: 'Cross-origin library changes are not allowed' })
+      }
+      const context = getViteProviderRequestSession(
+        req,
+        MUSIC_SESSION_COOKIE_NAME,
+        musicSessionStore
+      )
+      const active = await refreshSoundCloudSession(req, res, context)
+      if (!active) return sendJson(res, 401, { error: 'Connect SoundCloud first' })
+      const upstream = await fetch(
+        `https://api.soundcloud.com${upstreamPath}${requestUrl.search}`,
+        {
+          method,
+          headers: {
+            Accept: 'application/json; charset=utf-8',
+            Authorization: `OAuth ${active.accessToken}`,
+          },
+        }
+      )
+      res.statusCode = upstream.status
+      res.setHeader('Cache-Control', 'no-store')
+      res.setHeader('Content-Type', upstream.headers.get('content-type') ?? 'application/json')
+      res.end(await upstream.text())
+      return
+    }
+
+    if (pathname === '/youtube/authorize') {
+      if (req.method !== 'POST') {
+        res.setHeader('Allow', 'POST')
+        return sendJson(res, 405, { error: 'Method not allowed' })
+      }
+      if (!isViteStrictSameOriginMutation(req)) {
+        return sendJson(res, 403, { error: 'Cross-origin OAuth start is not allowed' })
+      }
+      if (!youtubeClientId || !youtubeClientSecret) {
+        return sendJson(res, 503, { error: 'YouTube is not configured' })
+      }
+      const verifier = base64Url(randomBytes(64))
+      const challenge = base64Url(createHash('sha256').update(verifier).digest())
+      const state = createViteProviderState()
+      const context = createViteProviderRequestSession(
+        req,
+        res,
+        MUSIC_SESSION_COOKIE_NAME,
+        musicSessionStore
+      )
+      writeMusicSession(context, {
+        youtubePending: {
+          verifier,
+          state,
+          expiresAt: Date.now() + MUSIC_OAUTH_PENDING_TTL_MS,
+        },
+      })
+      const params = new URLSearchParams({
+        access_type: 'offline',
+        client_id: youtubeClientId,
+        code_challenge: challenge,
+        code_challenge_method: 'S256',
+        include_granted_scopes: 'true',
+        prompt: 'consent',
+        redirect_uri: youtubeRedirectUri,
+        response_type: 'code',
+        scope: 'https://www.googleapis.com/auth/youtube.force-ssl',
+        state,
+      })
+      const authorizationUri = `https://accounts.google.com/o/oauth2/v2/auth?${params}`
+      return sendJson(res, 200, {
+        authorizationUrl: getYouTubeAuthorizeLocation(
+          youtubeRedirectUri,
+          `${getViteProviderRequestOrigin(req)}/__navet_music__/youtube/callback`,
+          authorizationUri
+        ),
+      })
+    }
+
+    if (pathname === '/youtube/callback') {
+      const context = getViteProviderRequestSession(
+        req,
+        MUSIC_SESSION_COOKIE_NAME,
+        musicSessionStore
+      )
+      const pending = context?.session.youtubePending
+      const code = requestUrl.searchParams.get('code')
+      const valid =
+        pending &&
+        pending.expiresAt >= Date.now() &&
+        requestUrl.searchParams.get('state') === pending.state
+      if (!valid || !code || !pending || !context) {
+        res.statusCode = 302
+        res.setHeader('Location', '/music?music_oauth=youtube_music&status=failed')
+        res.end()
+        return
+      }
+      try {
+        const token = await exchangeYouTubeToken(
+          new URLSearchParams({
+            client_id: youtubeClientId,
+            client_secret: youtubeClientSecret,
+            code,
+            code_verifier: pending.verifier,
+            grant_type: 'authorization_code',
+            redirect_uri: youtubeRedirectUri,
+          })
+        )
+        const session: YouTubeSessionData = {
+          accessToken: token.accessToken,
+          refreshToken: token.refreshToken,
+          expiresAt: Date.now() + token.expiresIn * 1000,
+          scope: token.scope,
+        }
+        const profileResponse = await fetch(
+          'https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true&maxResults=1',
+          {
+            headers: {
+              Accept: 'application/json',
+              Authorization: `Bearer ${session.accessToken}`,
+            },
+          }
+        )
+        if (profileResponse.ok) {
+          const profile = (await profileResponse.json()) as {
+            items?: Array<{
+              snippet?: {
+                title?: unknown
+                thumbnails?: { default?: { url?: unknown } }
+              }
+            }>
+          }
+          const snippet = profile.items?.[0]?.snippet
+          session.displayName =
+            typeof snippet?.title === 'string' ? snippet.title : undefined
+          session.avatarUrl =
+            typeof snippet?.thumbnails?.default?.url === 'string'
+              ? snippet.thumbnails.default.url
+              : undefined
+        }
+        const latest = musicSessionStore.readSession(context.cookieId) ?? context.session
+        rotateViteProviderRequestSession(
+          req,
+          res,
+          MUSIC_SESSION_COOKIE_NAME,
+          musicSessionStore,
+          context.cookieId,
+          {
+            ...latest,
+            updatedAt: Date.now(),
+            youtubeAuth: session,
+            youtubePending: null,
+          }
+        )
+        res.statusCode = 302
+        res.setHeader('Location', '/music?music_oauth=youtube_music&status=connected')
+        res.end()
+      } catch {
+        writeMusicSession(context, { youtubePending: null })
+        res.statusCode = 302
+        res.setHeader('Location', '/music?music_oauth=youtube_music&status=failed')
+        res.end()
+      }
+      return
+    }
+
+    if (pathname === '/youtube/status') {
+      if (!youtubeClientId || !youtubeClientSecret) {
+        return sendJson(res, 200, {
+          state: 'unavailable',
+          reason: 'YouTube is not configured for this Navet installation',
+          canConnect: false,
+        })
+      }
+      const context = getViteProviderRequestSession(
+        req,
+        MUSIC_SESSION_COOKIE_NAME,
+        musicSessionStore
+      )
+      try {
+        const session = await refreshYouTubeSession(req, res, context)
+        if (!session) return sendJson(res, 200, { state: 'disconnected' })
+        return sendJson(res, 200, {
+          state: 'connected',
+          displayName: session.displayName,
+        })
+      } catch {
+        return sendJson(res, 200, {
+          state: 'unavailable',
+          reason: 'YouTube could not refresh this browser session. Retry or reconnect.',
+        })
+      }
+    }
+
+    if (pathname === '/youtube/session' && req.method === 'DELETE') {
+      if (!isViteStrictSameOriginMutation(req)) {
+        return sendJson(res, 403, { error: 'Cross-origin session mutation is not allowed' })
+      }
+      const context = getViteProviderRequestSession(
+        req,
+        MUSIC_SESSION_COOKIE_NAME,
+        musicSessionStore
+      )
+      if (context) {
+        const next = writeMusicSession(context, {
+          youtubeAuth: null,
+          youtubePending: null,
+        })
+        if (next.auth || next.pending || next.soundcloudAuth || next.soundcloudPending) {
+          setViteProviderSessionCookie(req, res, MUSIC_SESSION_COOKIE_NAME, context.cookieId)
+        } else {
+          musicSessionStore.deleteSession(context.cookieId)
+          clearViteProviderSessionCookie(
+            req,
+            res,
+            MUSIC_SESSION_COOKIE_NAME,
+            musicSessionStore
+          )
+        }
+      } else {
+        clearViteProviderSessionCookie(
+          req,
+          res,
+          MUSIC_SESSION_COOKIE_NAME,
+          musicSessionStore
+        )
+      }
+      return sendJson(res, 200, { ok: true })
+    }
+
+    if (pathname.startsWith('/youtube/api/youtube/v3/')) {
+      const upstreamPath = pathname.slice('/youtube/api'.length)
+      const method = req.method ?? 'GET'
+      const allowed = isAllowedYouTubeOperation(method, upstreamPath)
+      if (!allowed) return sendJson(res, 404, { error: 'Unsupported YouTube operation' })
+      if (!['GET', 'HEAD'].includes(method) && !isViteStrictSameOriginMutation(req)) {
+        return sendJson(res, 403, { error: 'Cross-origin library changes are not allowed' })
+      }
+      const context = getViteProviderRequestSession(
+        req,
+        MUSIC_SESSION_COOKIE_NAME,
+        musicSessionStore
+      )
+      const active = await refreshYouTubeSession(req, res, context)
+      if (!active) return sendJson(res, 401, { error: 'Connect YouTube first' })
+      const body = !['GET', 'HEAD'].includes(method) ? await readRequestBody(req) : undefined
+      const upstream = await fetch(
+        `https://www.googleapis.com${upstreamPath}${requestUrl.search}`,
+        {
+          method,
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${active.accessToken}`,
             'Content-Type': String(req.headers['content-type'] ?? 'application/json'),
           },
           body: body || undefined,
@@ -3105,10 +4012,11 @@ function musicServicePlugin() {
       try {
         await resolveAppleMusicDeveloperToken()
         return sendJson(res, 200, { state: 'disconnected' })
-      } catch (error) {
+      } catch {
         return sendJson(res, 200, {
           state: 'unavailable',
-          reason: error instanceof Error ? error.message : 'Apple Music authorization is unavailable',
+          reason: 'Apple Music authorization is not available for this Navet installation',
+          canConnect: false,
         })
       }
     }
@@ -3139,6 +4047,52 @@ function musicServicePlugin() {
   }
 }
 
+function musicEngineGuardPlugin() {
+  const handle = (
+    req: IncomingMessage,
+    res: ServerResponse,
+    next: (error?: unknown) => void
+  ) => {
+    const pathname = new URL(
+      req.url ?? '/',
+      getViteProviderRequestOrigin(req)
+    ).pathname
+    const route = pathname.replace(/^\/__navet_music_engine__/, '') || '/'
+    const method = req.method ?? 'GET'
+    const allowedRead =
+      method === 'GET' &&
+      ['/status', '/targets', '/playback', '/queue'].includes(route)
+    const allowedMutation =
+      method === 'POST' &&
+      ['/play', '/group', '/ungroup', '/control'].includes(route)
+
+    if (!allowedRead && !allowedMutation) {
+      res.statusCode = 404
+      res.setHeader('Cache-Control', 'no-store')
+      res.end(JSON.stringify({ error: 'Unknown music engine endpoint' }))
+      return
+    }
+    if (allowedMutation && !isViteStrictSameOriginMutation(req)) {
+      res.statusCode = 403
+      res.setHeader('Cache-Control', 'no-store')
+      res.setHeader('Content-Type', 'application/json; charset=utf-8')
+      res.end(JSON.stringify({ error: 'Cross-origin speaker control is not allowed' }))
+      return
+    }
+    next()
+  }
+
+  const register = (server: ViteDevServer | PreviewServer) => {
+    server.middlewares.use('/__navet_music_engine__', handle)
+  }
+
+  return {
+    name: 'navet-music-engine-guard',
+    configureServer: register,
+    configurePreviewServer: register,
+  }
+}
+
 export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, repoRoot, '')
   if (env.NAVET_HOMEY_CLIENT_ID) {
@@ -3155,6 +4109,24 @@ export default defineConfig(({ command, mode }) => {
   }
   if (env.NAVET_SPOTIFY_REDIRECT_URI) {
     process.env.NAVET_SPOTIFY_REDIRECT_URI = env.NAVET_SPOTIFY_REDIRECT_URI
+  }
+  if (env.NAVET_SOUNDCLOUD_CLIENT_ID) {
+    process.env.NAVET_SOUNDCLOUD_CLIENT_ID = env.NAVET_SOUNDCLOUD_CLIENT_ID
+  }
+  if (env.NAVET_SOUNDCLOUD_CLIENT_SECRET) {
+    process.env.NAVET_SOUNDCLOUD_CLIENT_SECRET = env.NAVET_SOUNDCLOUD_CLIENT_SECRET
+  }
+  if (env.NAVET_SOUNDCLOUD_REDIRECT_URI) {
+    process.env.NAVET_SOUNDCLOUD_REDIRECT_URI = env.NAVET_SOUNDCLOUD_REDIRECT_URI
+  }
+  if (env.NAVET_YOUTUBE_CLIENT_ID) {
+    process.env.NAVET_YOUTUBE_CLIENT_ID = env.NAVET_YOUTUBE_CLIENT_ID
+  }
+  if (env.NAVET_YOUTUBE_CLIENT_SECRET) {
+    process.env.NAVET_YOUTUBE_CLIENT_SECRET = env.NAVET_YOUTUBE_CLIENT_SECRET
+  }
+  if (env.NAVET_YOUTUBE_REDIRECT_URI) {
+    process.env.NAVET_YOUTUBE_REDIRECT_URI = env.NAVET_YOUTUBE_REDIRECT_URI
   }
   if (env.NAVET_APPLE_MUSIC_DEVELOPER_TOKEN) {
     process.env.NAVET_APPLE_MUSIC_DEVELOPER_TOKEN = env.NAVET_APPLE_MUSIC_DEVELOPER_TOKEN
@@ -3270,7 +4242,8 @@ export default defineConfig(({ command, mode }) => {
       tailwindcss(),
       rssProxyPlugin(),
       spotifyMetadataPlugin(),
-      musicServicePlugin(),
+      musicServicePlugin(installationAuthority),
+      musicEngineGuardPlugin(),
       authSessionPlugin,
       dashboardProfilePlugin,
       homeySessionPlugin,

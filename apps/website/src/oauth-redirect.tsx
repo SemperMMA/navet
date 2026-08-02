@@ -12,10 +12,19 @@ import { useEffect, useMemo, useState } from 'react';
 import '../oauth-redirect.css';
 
 export const NAVET_SPOTIFY_OAUTH_RELAY_URI = 'https://navet.app/redirect/oauth';
+export const NAVET_SOUNDCLOUD_OAUTH_RELAY_URI = NAVET_SPOTIFY_OAUTH_RELAY_URI;
+export const NAVET_YOUTUBE_OAUTH_RELAY_URI = NAVET_SPOTIFY_OAUTH_RELAY_URI;
 const INSTANCE_STORAGE_KEY = 'navet-oauth-relay-instance';
 const HOME_STORAGE_KEY = 'navet-oauth-relay-home';
 const NAVET_SPOTIFY_CALLBACK_PATH = '/__navet_music__/spotify/callback';
+const NAVET_SOUNDCLOUD_CALLBACK_PATH = '/__navet_music__/soundcloud/callback';
+const NAVET_YOUTUBE_CALLBACK_PATH = '/__navet_music__/youtube/callback';
 const NAVET_ISSUES_URL = 'https://github.com/awesomestvi/navet/issues/new';
+type OAuthRelayProvider = 'spotify' | 'soundcloud' | 'youtube';
+
+function isOAuthRelayProvider(value: unknown): value is OAuthRelayProvider {
+  return value === 'spotify' || value === 'soundcloud' || value === 'youtube';
+}
 
 function isPrivateIpv4(hostname: string): boolean {
   const octets = hostname.split('.').map(Number);
@@ -56,11 +65,68 @@ export function isValidNavetCallbackUrl(value: string): boolean {
       !url.username &&
       !url.password &&
       isLocalNavetHostname(url.hostname) &&
-      url.pathname.endsWith(NAVET_SPOTIFY_CALLBACK_PATH)
+      (url.pathname.endsWith(NAVET_SPOTIFY_CALLBACK_PATH) ||
+        url.pathname.endsWith(NAVET_SOUNDCLOUD_CALLBACK_PATH) ||
+        url.pathname.endsWith(NAVET_YOUTUBE_CALLBACK_PATH))
     );
   } catch {
     return false;
   }
+}
+
+export function isValidSoundCloudAuthorizeUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    const state = url.searchParams.get('state');
+    return (
+      url.origin === 'https://secure.soundcloud.com' &&
+      url.pathname === '/authorize' &&
+      url.searchParams.get('redirect_uri') === NAVET_SOUNDCLOUD_OAUTH_RELAY_URI &&
+      url.searchParams.get('code_challenge_method') === 'S256' &&
+      Boolean(state && state.length <= 512)
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function isValidYouTubeAuthorizeUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    const state = url.searchParams.get('state');
+    return (
+      url.origin === 'https://accounts.google.com' &&
+      url.pathname === '/o/oauth2/v2/auth' &&
+      url.searchParams.get('redirect_uri') === NAVET_YOUTUBE_OAUTH_RELAY_URI &&
+      url.searchParams.get('code_challenge_method') === 'S256' &&
+      Boolean(state && state.length <= 512)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isValidAuthorizeUrl(value: string, provider: string): boolean {
+  if (provider === 'soundcloud') return isValidSoundCloudAuthorizeUrl(value);
+  if (provider === 'youtube') return isValidYouTubeAuthorizeUrl(value);
+  return provider === 'spotify' && isValidSpotifyAuthorizeUrl(value);
+}
+
+function isValidProviderCallbackUrl(value: string, provider: string): boolean {
+  if (!isValidNavetCallbackUrl(value)) return false;
+  const expectedPath =
+    provider === 'soundcloud'
+      ? NAVET_SOUNDCLOUD_CALLBACK_PATH
+      : provider === 'youtube'
+        ? NAVET_YOUTUBE_CALLBACK_PATH
+      : NAVET_SPOTIFY_CALLBACK_PATH;
+  return new URL(value).pathname.endsWith(expectedPath);
+}
+
+function getAuthorizeState(value: string, provider: string): string | null {
+  if (!isValidAuthorizeUrl(value, provider)) return null;
+  const state = new URL(value).searchParams.get('state');
+  return state && state.length <= 512 ? state : null;
 }
 
 export function isValidSpotifyAuthorizeUrl(value: string): boolean {
@@ -97,16 +163,32 @@ export function buildNavetCallbackUrl(instanceUrl: string, search: string): stri
 
 export function buildStoredNavetCallbackUrl(storedRequest: string, search: string): string | null {
   try {
-    const request = JSON.parse(storedRequest) as { callback?: unknown; state?: unknown };
+    const request = JSON.parse(storedRequest) as {
+      callback?: unknown;
+      provider?: unknown;
+      state?: unknown;
+    };
     const returnedState = new URLSearchParams(search).get('state');
+    const provider = isOAuthRelayProvider(request.provider) ? request.provider : 'spotify';
     if (
       typeof request.callback !== 'string' ||
       typeof request.state !== 'string' ||
+      !isValidProviderCallbackUrl(request.callback, provider) ||
       returnedState !== request.state
     ) {
       return null;
     }
     return buildNavetCallbackUrl(request.callback, search);
+  } catch {
+    return null;
+  }
+}
+
+export function getStoredOAuthProvider(storedRequest: string | null): OAuthRelayProvider | null {
+  if (!storedRequest) return null;
+  try {
+    const request = JSON.parse(storedRequest) as { provider?: unknown };
+    return isOAuthRelayProvider(request.provider) ? request.provider : null;
   } catch {
     return null;
   }
@@ -134,7 +216,12 @@ export function normalizeNavetHomeUrl(value: string): string | null {
 export function getNavetHomeUrlFromCallback(callbackUrl: string): string | null {
   if (!isValidNavetCallbackUrl(callbackUrl)) return null;
   const url = new URL(callbackUrl);
-  url.pathname = url.pathname.slice(0, -NAVET_SPOTIFY_CALLBACK_PATH.length) || '/';
+  const callbackPath = url.pathname.endsWith(NAVET_SOUNDCLOUD_CALLBACK_PATH)
+    ? NAVET_SOUNDCLOUD_CALLBACK_PATH
+    : url.pathname.endsWith(NAVET_YOUTUBE_CALLBACK_PATH)
+      ? NAVET_YOUTUBE_CALLBACK_PATH
+      : NAVET_SPOTIFY_CALLBACK_PATH;
+  url.pathname = url.pathname.slice(0, -callbackPath.length) || '/';
   url.search = '';
   url.hash = '';
   return url.toString();
@@ -151,24 +238,33 @@ export function NavetOAuthRedirectPage() {
     () => new URLSearchParams(window.location.hash.replace(/^#/, '')),
     []
   );
+  const storedRequest = window.sessionStorage.getItem(INSTANCE_STORAGE_KEY);
   const instance = startParams.get('instance');
   const authorize = startParams.get('authorize');
+  const requestedProvider = startParams.get('provider');
+  const provider: OAuthRelayProvider = isOAuthRelayProvider(requestedProvider)
+    ? requestedProvider
+    : (getStoredOAuthProvider(storedRequest) ?? 'spotify');
+  const providerName =
+    provider === 'soundcloud' ? 'SoundCloud' : provider === 'youtube' ? 'YouTube Music' : 'Spotify';
   const isStartRequest = instance !== null || authorize !== null;
 
   useEffect(() => {
-    document.title = 'Connect Spotify · Navet';
+    document.title = `Connect ${providerName} · Navet`;
 
     if (!instance || !authorize) return;
-    if (!isValidNavetCallbackUrl(instance) || !isValidSpotifyAuthorizeUrl(authorize)) return;
-    const state = getSpotifyAuthorizeState(authorize);
+    if (!isValidProviderCallbackUrl(instance, provider) || !isValidAuthorizeUrl(authorize, provider)) return;
+    const state = getAuthorizeState(authorize, provider);
     if (!state) return;
-    window.sessionStorage.setItem(INSTANCE_STORAGE_KEY, JSON.stringify({ callback: instance, state }));
+    window.sessionStorage.setItem(
+      INSTANCE_STORAGE_KEY,
+      JSON.stringify({ callback: instance, provider, state })
+    );
     const navetHomeUrl = getNavetHomeUrlFromCallback(instance);
     if (navetHomeUrl) window.localStorage.setItem(HOME_STORAGE_KEY, navetHomeUrl);
     window.location.replace(authorize);
-  }, [authorize, instance]);
+  }, [authorize, instance, provider, providerName]);
 
-  const storedRequest = window.sessionStorage.getItem(INSTANCE_STORAGE_KEY);
   const callbackUrl = storedRequest
     ? buildStoredNavetCallbackUrl(storedRequest, window.location.search)
     : null;
@@ -176,21 +272,21 @@ export function NavetOAuthRedirectPage() {
     isStartRequest &&
     (!instance ||
       !authorize ||
-      !isValidNavetCallbackUrl(instance) ||
-      !isValidSpotifyAuthorizeUrl(authorize));
+      !isValidProviderCallbackUrl(instance, provider) ||
+      !isValidAuthorizeUrl(authorize, provider));
   const heading = invalidStart
-    ? 'Spotify connection couldn’t start'
+    ? `${providerName} connection couldn’t start`
     : callbackUrl
       ? 'Return to Navet'
       : isStartRequest
-        ? 'Connecting to Spotify'
-        : 'Spotify connection expired';
+        ? `Connecting to ${providerName}`
+        : `${providerName} connection expired`;
   const intro = invalidStart
     ? 'The authorization link is incomplete or no longer valid.'
     : callbackUrl
-      ? 'Spotify approved the connection. Finish setup in the Navet dashboard that sent you here.'
+      ? `${providerName} approved the connection. Finish setup in the Navet dashboard that sent you here.`
       : isStartRequest
-        ? 'Navet is handing you over to Spotify to approve the connection.'
+        ? `Navet is handing you over to ${providerName} to approve the connection.`
         : 'Open Music in your Navet dashboard and choose Connect to start again.';
 
   return (
@@ -218,7 +314,7 @@ export function NavetOAuthRedirectPage() {
               <>
                 <StatusRow
                   icon={<CheckCircle2 aria-hidden="true" />}
-                  title="Spotify approved"
+                  title={`${providerName} approved`}
                   detail="Your Navet dashboard is ready to finish the connection."
                   tone="success"
                 />
@@ -231,7 +327,7 @@ export function NavetOAuthRedirectPage() {
             ) : (
               <StatusRow
                 icon={<LoaderCircle className="navet-oauth-spinner" aria-hidden="true" />}
-                title="Opening Spotify"
+                title={`Opening ${providerName}`}
                 detail="You’ll return here automatically after approving the connection."
                 tone="progress"
               />

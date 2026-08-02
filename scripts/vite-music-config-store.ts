@@ -4,6 +4,13 @@ import path from 'node:path'
 export interface MusicServiceConfigData {
   spotifyClientId?: string
   spotifyRedirectUri?: string
+  appleMusicDeveloperToken?: string
+  soundcloudClientId?: string
+  soundcloudClientSecret?: string
+  soundcloudRedirectUri?: string
+  youtubeClientId?: string
+  youtubeClientSecret?: string
+  youtubeRedirectUri?: string
 }
 
 export type MusicServiceConfigPatch = {
@@ -33,7 +40,17 @@ export function isValidMusicServiceConfig(value: unknown): value is MusicService
   }
 
   const config = value as Record<string, unknown>
-  const allowedKeys = new Set(['spotifyClientId', 'spotifyRedirectUri'])
+  const allowedKeys = new Set([
+    'spotifyClientId',
+    'spotifyRedirectUri',
+    'appleMusicDeveloperToken',
+    'soundcloudClientId',
+    'soundcloudClientSecret',
+    'soundcloudRedirectUri',
+    'youtubeClientId',
+    'youtubeClientSecret',
+    'youtubeRedirectUri',
+  ])
   if (Object.keys(config).some((key) => !allowedKeys.has(key))) {
     return false
   }
@@ -50,6 +67,34 @@ export function isValidMusicServiceConfig(value: unknown): value is MusicService
       return false
     }
   }
+  if (
+    config.appleMusicDeveloperToken !== undefined &&
+    !isAppleMusicDeveloperToken(config.appleMusicDeveloperToken)
+  ) {
+    return false
+  }
+  for (const key of ['soundcloudClientId', 'soundcloudClientSecret'] as const) {
+    if (config[key] !== undefined && readOptionalString(config[key]) === undefined) {
+      return false
+    }
+  }
+  if (config.soundcloudRedirectUri !== undefined) {
+    const redirectUri = readOptionalString(config.soundcloudRedirectUri)
+    if (!redirectUri || !isSecureSpotifyRedirectUri(redirectUri)) {
+      return false
+    }
+  }
+  for (const key of ['youtubeClientId', 'youtubeClientSecret'] as const) {
+    if (config[key] !== undefined && readOptionalString(config[key]) === undefined) {
+      return false
+    }
+  }
+  if (config.youtubeRedirectUri !== undefined) {
+    const redirectUri = readOptionalString(config.youtubeRedirectUri)
+    if (!redirectUri || !isSecureSpotifyRedirectUri(redirectUri)) {
+      return false
+    }
+  }
 
   return true
 }
@@ -60,7 +105,17 @@ export function isValidMusicServiceConfigPatch(value: unknown): value is MusicSe
   }
 
   const patch = value as Record<string, unknown>
-  const allowedKeys = new Set(['spotifyClientId', 'spotifyRedirectUri'])
+  const allowedKeys = new Set([
+    'spotifyClientId',
+    'spotifyRedirectUri',
+    'appleMusicDeveloperToken',
+    'soundcloudClientId',
+    'soundcloudClientSecret',
+    'soundcloudRedirectUri',
+    'youtubeClientId',
+    'youtubeClientSecret',
+    'youtubeRedirectUri',
+  ])
   if (Object.keys(patch).length === 0 || Object.keys(patch).some((key) => !allowedKeys.has(key))) {
     return false
   }
@@ -70,8 +125,20 @@ export function isValidMusicServiceConfigPatch(value: unknown): value is MusicSe
       (entry) => entry === null || (typeof entry === 'string' && entry.trim().length > 0)
     ) &&
     (typeof patch.spotifyRedirectUri !== 'string' ||
-      isSecureSpotifyRedirectUri(patch.spotifyRedirectUri))
+      isSecureSpotifyRedirectUri(patch.spotifyRedirectUri)) &&
+    (typeof patch.appleMusicDeveloperToken !== 'string' ||
+      isAppleMusicDeveloperToken(patch.appleMusicDeveloperToken)) &&
+    (typeof patch.soundcloudRedirectUri !== 'string' ||
+      isSecureSpotifyRedirectUri(patch.soundcloudRedirectUri)) &&
+    (typeof patch.youtubeRedirectUri !== 'string' ||
+      isSecureSpotifyRedirectUri(patch.youtubeRedirectUri))
   )
+}
+
+export function isAppleMusicDeveloperToken(value: string): boolean {
+  const candidate = value.trim()
+  if (candidate.length < 100 || candidate.length > 8192) return false
+  return candidate.split('.').length === 3 && /^[A-Za-z0-9._-]+$/.test(candidate)
 }
 
 export function createViteMusicConfigStore(
@@ -117,7 +184,7 @@ function loadPersistedMusicConfig(configFilePath: string): MusicServiceConfigDat
     if (isValidMusicServiceConfig(parsed)) return parsed
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
 
-    // Preserve Spotify values while dropping the legacy user-supplied Apple developer token.
+    // Preserve recognized values while dropping unknown legacy fields.
     const legacy = parsed as Record<string, unknown>
     const migrated = {
       ...(readOptionalString(legacy.spotifyClientId)
@@ -126,9 +193,31 @@ function loadPersistedMusicConfig(configFilePath: string): MusicServiceConfigDat
       ...(readOptionalString(legacy.spotifyRedirectUri)
         ? { spotifyRedirectUri: readOptionalString(legacy.spotifyRedirectUri) }
         : {}),
+      ...(readOptionalString(legacy.appleMusicDeveloperToken) &&
+      isAppleMusicDeveloperToken(readOptionalString(legacy.appleMusicDeveloperToken) ?? '')
+        ? { appleMusicDeveloperToken: readOptionalString(legacy.appleMusicDeveloperToken) }
+        : {}),
+      ...(readOptionalString(legacy.soundcloudClientId)
+        ? { soundcloudClientId: readOptionalString(legacy.soundcloudClientId) }
+        : {}),
+      ...(readOptionalString(legacy.soundcloudClientSecret)
+        ? { soundcloudClientSecret: readOptionalString(legacy.soundcloudClientSecret) }
+        : {}),
+      ...(readOptionalString(legacy.soundcloudRedirectUri)
+        ? { soundcloudRedirectUri: readOptionalString(legacy.soundcloudRedirectUri) }
+        : {}),
+      ...(readOptionalString(legacy.youtubeClientId)
+        ? { youtubeClientId: readOptionalString(legacy.youtubeClientId) }
+        : {}),
+      ...(readOptionalString(legacy.youtubeClientSecret)
+        ? { youtubeClientSecret: readOptionalString(legacy.youtubeClientSecret) }
+        : {}),
+      ...(readOptionalString(legacy.youtubeRedirectUri)
+        ? { youtubeRedirectUri: readOptionalString(legacy.youtubeRedirectUri) }
+        : {}),
     }
     if (!isValidMusicServiceConfig(migrated)) return {}
-    if ('appleMusicDeveloperToken' in legacy) {
+    if (Object.keys(legacy).some((key) => !(key in migrated))) {
       writeFileSync(configFilePath, JSON.stringify(migrated), { encoding: 'utf8', mode: 0o600 })
     }
     return migrated

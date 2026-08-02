@@ -16,8 +16,10 @@ const sourceAdapter: MusicSourceAdapter = {
   capabilities: {
     search: true,
     library: false,
+    itemDetails: false,
     queue: false,
     favorites: false,
+    favoriteMutation: false,
     browserPlayback: false,
     playbackHandoff: true,
   },
@@ -51,5 +53,17 @@ describe('music registry', () => {
     expect(listMusicPlaybackTargetAdapters()).toEqual([targetAdapter]);
     unregister();
     expect(getMusicPlaybackTargetAdapter('test-target')).toBeNull();
+  });
+
+  it('rejects duplicate adapter identifiers instead of silently replacing providers', () => {
+    registerMusicSourceAdapter(sourceAdapter);
+    expect(() => registerMusicSourceAdapter({ ...sourceAdapter })).toThrow(
+      'Music source adapter spotify is already registered'
+    );
+
+    registerMusicPlaybackTargetAdapter(targetAdapter);
+    expect(() => registerMusicPlaybackTargetAdapter({ ...targetAdapter })).toThrow(
+      'Music playback target adapter test-target is already registered'
+    );
   });
 });

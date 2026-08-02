@@ -3,6 +3,63 @@ import dgram from 'node:dgram'
 const SSDP_ADDRESS = '239.255.255.250'
 const SSDP_PORT = 1900
 const SONOS_SEARCH_TARGET = 'urn:schemas-upnp-org:device:ZonePlayer:1'
+const MAX_DISCOVERED_LOCATIONS = 64
+const MAX_DESCRIPTION_BYTES = 512 * 1024
+
+function isPrivateIpv4(hostname) {
+  const parts = hostname.split('.').map(Number)
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return false
+  }
+  return (
+    parts[0] === 10 ||
+    parts[0] === 127 ||
+    (parts[0] === 169 && parts[1] === 254) ||
+    (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
+    (parts[0] === 192 && parts[1] === 168) ||
+    (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127)
+  )
+}
+
+function isLocalHostname(hostname) {
+  const normalized = hostname.replace(/^\[|\]$/g, '').toLowerCase()
+  if (isPrivateIpv4(normalized)) return true
+  if (
+    normalized === '::1' ||
+    normalized.startsWith('fc') ||
+    normalized.startsWith('fd') ||
+    normalized.startsWith('fe8') ||
+    normalized.startsWith('fe9') ||
+    normalized.startsWith('fea') ||
+    normalized.startsWith('feb')
+  ) {
+    return true
+  }
+  return normalized.endsWith('.local')
+}
+
+export function isSafeSonosLocation(value) {
+  try {
+    const url = new URL(value)
+    return (
+      url.protocol === 'http:' &&
+      !url.username &&
+      !url.password &&
+      url.port === '1400' &&
+      isLocalHostname(url.hostname)
+    )
+  } catch {
+    return false
+  }
+}
+
+function configuredHostLocation(host) {
+  const normalized = String(host).trim()
+  if (!normalized || normalized.includes('/') || normalized.includes('@')) return null
+  const bracketed = normalized.includes(':') && !normalized.startsWith('[') ? `[${normalized}]` : normalized
+  const location = `http://${bracketed}:1400/xml/device_description.xml`
+  return isSafeSonosLocation(location) ? location : null
+}
 
 function xmlValue(xml, tag) {
   const match = xml.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, 'i'))
@@ -15,10 +72,22 @@ function resolveControlUrl(location, xml, serviceName) {
     entry.includes(`urn:schemas-upnp-org:service:${serviceName}:1`)
   )
   const controlUrl = service ? xmlValue(service, 'controlURL') : undefined
-  return controlUrl ? new URL(controlUrl, location).toString() : undefined
+  if (!controlUrl) return undefined
+  try {
+    const base = new URL(location)
+    const resolved = new URL(controlUrl, base)
+    return resolved.origin === base.origin && isSafeSonosLocation(resolved.toString())
+      ? resolved.toString()
+      : undefined
+  } catch {
+    return undefined
+  }
 }
 
 export function parseSonosDescription(location, xml) {
+  if (!isSafeSonosLocation(location) || typeof xml !== 'string' || xml.length > MAX_DESCRIPTION_BYTES) {
+    return null
+  }
   const id = xmlValue(xml, 'UDN')?.replace(/^uuid:/, '')
   const name = xmlValue(xml, 'roomName') ?? xmlValue(xml, 'friendlyName')
   const controlUrl = resolveControlUrl(location, xml, 'AVTransport')
@@ -45,9 +114,7 @@ export async function discoverSonosPlayers({
   configuredHosts = [],
   useMulticast = true,
 } = {}) {
-  const locations = new Set(
-    configuredHosts.map((host) => `http://${host}:1400/xml/device_description.xml`)
-  )
+  const locations = new Set(configuredHosts.slice(0, 32).map(configuredHostLocation).filter(Boolean))
   const socket = useMulticast ? dgram.createSocket({ type: 'udp4', reuseAddr: true }) : null
   const request = [
     'M-SEARCH * HTTP/1.1',
@@ -67,7 +134,13 @@ export async function discoverSonosPlayers({
     })
     socket.on('message', (message) => {
       const location = message.toString().match(/^location:\s*(.+)$/im)?.[1]?.trim()
-      if (location) locations.add(location)
+      if (
+        location &&
+        locations.size < MAX_DISCOVERED_LOCATIONS &&
+        isSafeSonosLocation(location)
+      ) {
+        locations.add(location)
+      }
     })
     socket.bind(0, () => {
       socket.send(request, SSDP_PORT, SSDP_ADDRESS)
@@ -76,9 +149,14 @@ export async function discoverSonosPlayers({
 
   const descriptions = await Promise.allSettled(
     [...locations].map(async (location) => {
-      const response = await fetchImpl(location, { signal: AbortSignal.timeout(2500) })
+      const response = await fetchImpl(location, {
+        redirect: 'error',
+        signal: AbortSignal.timeout(2500),
+      })
       if (!response.ok) return null
-      return parseSonosDescription(location, await response.text())
+      const xml = await response.text()
+      if (xml.length > MAX_DESCRIPTION_BYTES) return null
+      return parseSonosDescription(location, xml)
     })
   )
   return descriptions.flatMap((result) =>
@@ -168,6 +246,36 @@ export async function ungroupSonosPlayer(player) {
   await sonosAction(player, 'BecomeCoordinatorOfStandaloneGroup')
 }
 
+function sonosTimeMs(value) {
+  if (typeof value !== 'string' || !/^\d+:\d{2}:\d{2}$/.test(value)) return undefined
+  const [hours, minutes, seconds] = value.split(':').map(Number)
+  if (![hours, minutes, seconds].every(Number.isFinite)) return undefined
+  return ((hours * 60 + minutes) * 60 + seconds) * 1000
+}
+
+export async function getSonosPlaybackState(player) {
+  const [transport, position] = await Promise.all([
+    sonosAction(player, 'GetTransportInfo'),
+    sonosAction(player, 'GetPositionInfo'),
+  ])
+  const transportState = xmlValue(transport, 'CurrentTransportState')
+  const state =
+    transportState === 'PLAYING'
+      ? 'playing'
+      : transportState === 'PAUSED_PLAYBACK'
+        ? 'paused'
+        : transportState === 'TRANSITIONING'
+          ? 'buffering'
+          : 'idle'
+  const trackNumber = Number.parseInt(xmlValue(position, 'Track') ?? '', 10)
+  return {
+    state,
+    positionMs: sonosTimeMs(xmlValue(position, 'RelTime')) ?? 0,
+    durationMs: sonosTimeMs(xmlValue(position, 'TrackDuration')),
+    trackNumber: Number.isFinite(trackNumber) && trackNumber > 0 ? trackNumber : undefined,
+  }
+}
+
 function xmlEscape(value) {
   return String(value)
     .replaceAll('&', '&amp;')
@@ -206,12 +314,22 @@ function spotifyQueueItem(uri, title, serviceNumber, serialNumber = 7) {
   return { enqueueUri: sonosUri, metadata }
 }
 
-async function addSpotifyUriToSonosQueue(player, uri, title, serviceNumber, serialNumber) {
+async function addSpotifyUriToSonosQueue(
+  player,
+  uri,
+  title,
+  serviceNumber,
+  serialNumber,
+  position = 'later'
+) {
+  if (position !== 'next' && position !== 'later') {
+    throw new Error('Sonos queue position must be next or later')
+  }
   const item = spotifyQueueItem(uri, title, serviceNumber, serialNumber)
   const response = await sonosAction(
     player,
     'AddURIToQueue',
-    `<EnqueuedURI>${xmlEscape(item.enqueueUri)}</EnqueuedURI><EnqueuedURIMetaData>${xmlEscape(item.metadata)}</EnqueuedURIMetaData><DesiredFirstTrackNumberEnqueued>0</DesiredFirstTrackNumberEnqueued><EnqueueAsNext>1</EnqueueAsNext>`
+    `<EnqueuedURI>${xmlEscape(item.enqueueUri)}</EnqueuedURI><EnqueuedURIMetaData>${xmlEscape(item.metadata)}</EnqueuedURIMetaData><DesiredFirstTrackNumberEnqueued>0</DesiredFirstTrackNumberEnqueued><EnqueueAsNext>${position === 'next' ? 1 : 0}</EnqueueAsNext>`
   )
   const queueNumber = Number.parseInt(
     response.match(/<FirstTrackNumberEnqueued>(\d+)<\/FirstTrackNumberEnqueued>/i)?.[1] ?? '',
@@ -221,11 +339,19 @@ async function addSpotifyUriToSonosQueue(player, uri, title, serviceNumber, seri
   return queueNumber
 }
 
-export async function enqueueSonosSpotifyUri(player, uri, title = '') {
+export async function enqueueSonosSpotifyUri(player, uri, title = '', options = {}) {
+  const position = options.position ?? 'later'
   let failure
   for (const serviceNumber of [2311, 3079]) {
     try {
-      return await addSpotifyUriToSonosQueue(player, uri, title, serviceNumber)
+      return await addSpotifyUriToSonosQueue(
+        player,
+        uri,
+        title,
+        serviceNumber,
+        undefined,
+        position
+      )
     } catch (error) {
       failure = error
     }
@@ -251,7 +377,14 @@ export async function playSonosSpotifyUri(player, uri, title = '') {
   for (const serialNumber of serialNumbers) {
     try {
       await clearSonosQueue(player)
-      const queueNumber = await addSpotifyUriToSonosQueue(player, uri, title, 2311, serialNumber)
+      const queueNumber = await addSpotifyUriToSonosQueue(
+        player,
+        uri,
+        title,
+        2311,
+        serialNumber,
+        'later'
+      )
       await sonosAction(
         player,
         'SetAVTransportURI',
@@ -283,12 +416,10 @@ async function renderingAction(player, action, body) {
 }
 
 export async function playSonosStream(player, streamUrl, metadata = '') {
-  const escapedUrl = streamUrl.replaceAll('&', '&amp;')
-  const escapedMetadata = metadata.replaceAll('&', '&amp;').replaceAll('<', '&lt;')
   await sonosAction(
     player,
     'SetAVTransportURI',
-    `<CurrentURI>${escapedUrl}</CurrentURI><CurrentURIMetaData>${escapedMetadata}</CurrentURIMetaData>`
+    `<CurrentURI>${xmlEscape(streamUrl)}</CurrentURI><CurrentURIMetaData>${xmlEscape(metadata)}</CurrentURIMetaData>`
   )
   await sonosAction(player, 'Play', '<Speed>1</Speed>')
 }

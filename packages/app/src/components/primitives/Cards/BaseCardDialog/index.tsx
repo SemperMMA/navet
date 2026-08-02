@@ -848,7 +848,7 @@ function BaseCardDialogSheetVariant({
           type="button"
           onPointerDown={handlePointerDown}
           onClick={handleClick}
-          className="mx-auto mb-3 flex h-5 w-16 touch-none items-center justify-center"
+          className="mx-auto mb-3 flex h-5 w-16 touch-none items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-white/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
           aria-label={closeLabel ?? `Close ${title}`}
         >
           <span className="h-1.5 w-12 rounded-full bg-white/20" aria-hidden="true" />

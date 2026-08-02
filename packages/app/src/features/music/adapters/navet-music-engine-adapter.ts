@@ -35,6 +35,21 @@ export const navetMusicEngineTargetAdapter: MusicPlaybackTargetAdapter = {
       groupId: target.groupId,
       groupCoordinatorId: target.groupCoordinatorId,
       groupMemberIds: target.groupMemberIds,
+      capabilities: {
+        enqueue: true,
+        queuePositions: ['next', 'later'],
+        grouping: true,
+        transport: {
+          play: true,
+          pause: true,
+          next: true,
+          previous: true,
+          seek: true,
+          set_volume: true,
+          set_shuffle: true,
+          set_repeat: true,
+        },
+      },
     }));
   },
   async play(targetId: string, item: MusicItem, options?: { replaceQueue?: boolean }) {
@@ -44,8 +59,23 @@ export const navetMusicEngineTargetAdapter: MusicPlaybackTargetAdapter = {
       queueMode: options?.replaceQueue === false ? 'add' : 'replace',
     });
   },
-  async enqueue(targetId: string, item: MusicItem) {
-    await navetMusicEngineClient.play({ targetId, item, queueMode: 'add' });
+  canEnqueue(_targetId: string, item: MusicItem) {
+    return (
+      item.sourceId === 'spotify' &&
+      item.playable &&
+      ['album', 'episode', 'playlist', 'track'].includes(item.type) &&
+      item.uri?.startsWith(`spotify:${item.type}:`) === true
+    );
+  },
+  async enqueue(targetId: string, item: MusicItem, options?: { position?: 'next' | 'later' }) {
+    if (!navetMusicEngineTargetAdapter.canEnqueue?.(targetId, item)) {
+      throw new Error('The Navet music engine cannot enqueue this item');
+    }
+    await navetMusicEngineClient.play({
+      targetId,
+      item,
+      queueMode: options?.position === 'next' ? 'next' : 'add',
+    });
   },
   async execute(targetId: string, command: MusicTransportCommand) {
     await navetMusicEngineClient.execute(targetId, command);

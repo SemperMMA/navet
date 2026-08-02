@@ -74,6 +74,7 @@ export interface ViteProviderSessionStore<T extends { updatedAt: number }> {
   createSession(): { cookieId: string; session: T }
   deleteSession(cookieId: string): void
   discardLegacyGlobalSession(): void
+  isAuthenticatedSession(session: T): boolean
   readSession(cookieId: string): T | null
   rotateSession(previousCookieId: string, session: T): { cookieId: string; session: T }
   writeSession(cookieId: string, session: T): void
@@ -83,6 +84,8 @@ interface ViteProviderSessionStoreOptions<T extends { updatedAt: number }> {
   cookieNames: InstallationCookieNames
   createRecord: () => T
   isValidRecord: (value: unknown) => value is T
+  isActiveRecord?: (record: T, now: number) => boolean
+  isAuthenticatedRecord?: (record: T) => boolean
   legacySessionPath: string
   maxRecordBytes: number
   maxSessions?: number
@@ -250,6 +253,23 @@ export function createViteProviderSessionStore<T extends { updatedAt: number }>(
     maxRecordBytes,
     sessionsDirectory,
   } = options
+  const isActiveRecord =
+    options.isActiveRecord ??
+    ((record: T, now: number) => {
+      const candidate = record as T & {
+        auth?: unknown
+        pending?: { expiresAt?: unknown } | null
+      }
+      if (candidate.auth) return true
+      return Boolean(
+        candidate.pending &&
+          typeof candidate.pending.expiresAt === 'number' &&
+          candidate.pending.expiresAt >= now
+      )
+    })
+  const isAuthenticatedRecord =
+    options.isAuthenticatedRecord ??
+    ((record: T) => Boolean((record as T & { auth?: unknown }).auth))
   const idleTtlMs = options.idleTtlMs ?? SESSION_IDLE_TTL_MS
   const maxSessions = options.maxSessions ?? DEFAULT_MAX_SESSIONS
   const cookieNames = options.cookieNames
@@ -304,14 +324,7 @@ export function createViteProviderSessionStore<T extends { updatedAt: number }>(
     if (
       !isValidRecord(parsed) ||
       parsed.updatedAt + idleTtlMs < Date.now() ||
-      (!('auth' in parsed) && !('pending' in parsed)) ||
-      (('auth' in parsed && !parsed.auth) &&
-        (!('pending' in parsed) || !parsed.pending)) ||
-      (('auth' in parsed && !parsed.auth) &&
-        'pending' in parsed &&
-        parsed.pending &&
-        typeof (parsed.pending as { expiresAt?: unknown }).expiresAt === 'number' &&
-        (parsed.pending as { expiresAt: number }).expiresAt < Date.now())
+      !isActiveRecord(parsed, Date.now())
     ) {
       rmSync(sessionPath, { force: true })
       return null
@@ -352,7 +365,7 @@ export function createViteProviderSessionStore<T extends { updatedAt: number }>(
       const session = readSession(match[1])
       if (session) {
         active.push({
-          authenticated: 'auth' in session && Boolean(session.auth),
+          authenticated: isAuthenticatedRecord(session),
           cookieId: match[1],
           updatedAt: session.updatedAt,
         })
@@ -461,6 +474,7 @@ export function createViteProviderSessionStore<T extends { updatedAt: number }>(
     createSession,
     deleteSession,
     discardLegacyGlobalSession,
+    isAuthenticatedSession: isAuthenticatedRecord,
     readSession(cookieId) {
       discardLegacyGlobalSession()
       return readSession(cookieId)
@@ -503,12 +517,8 @@ export function getViteProviderRequestSessions<T extends { updatedAt: number }>(
     })
   }
   contexts.sort((left, right) => {
-    const leftAuthenticated =
-      'auth' in left.session &&
-      Boolean((left.session as T & { auth?: unknown }).auth)
-    const rightAuthenticated =
-      'auth' in right.session &&
-      Boolean((right.session as T & { auth?: unknown }).auth)
+    const leftAuthenticated = store.isAuthenticatedSession(left.session)
+    const rightAuthenticated = store.isAuthenticatedSession(right.session)
     if (leftAuthenticated !== rightAuthenticated) {
       return leftAuthenticated ? -1 : 1
     }

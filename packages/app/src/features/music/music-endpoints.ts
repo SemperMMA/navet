@@ -2,37 +2,36 @@ import { resolveAddonLocalEndpointUrl } from '@navet/app/utils/home-assistant-co
 
 export const MUSIC_API_BASE_PATH = '/__navet_music__';
 
-export type MusicConfigurationSource = 'stored' | 'environment' | 'none';
+export type MusicConfigurationSource = 'stored' | 'environment' | 'hosted' | 'none';
+
+interface OAuthMusicConfigurationStatus {
+  configured: boolean;
+  source: MusicConfigurationSource;
+  clientIdHint: string | null;
+  secretConfigured?: boolean;
+  redirectUri: string;
+}
 
 export interface MusicConfigurationStatus {
-  spotify: {
+  spotify: OAuthMusicConfigurationStatus;
+  apple: {
     configured: boolean;
     source: MusicConfigurationSource;
-    clientIdHint: string | null;
-    redirectUri: string;
   };
+  soundcloud: OAuthMusicConfigurationStatus;
+  youtube: OAuthMusicConfigurationStatus;
 }
 
 export interface MusicConfigurationPatch {
   spotifyClientId?: string | null;
   spotifyRedirectUri?: string | null;
-}
-
-export type SpotifyRedirectUriIssue = 'invalid' | 'localhost' | 'https-required';
-
-export function getSpotifyRedirectUriIssue(value: string): SpotifyRedirectUriIssue | null {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    return 'invalid';
-  }
-
-  if (url.protocol === 'https:') return null;
-  if (url.protocol !== 'http:') return 'invalid';
-  if (url.hostname === 'localhost') return 'localhost';
-  if (url.hostname === '127.0.0.1' || url.hostname === '[::1]') return null;
-  return 'https-required';
+  appleMusicDeveloperToken?: string | null;
+  soundcloudClientId?: string | null;
+  soundcloudClientSecret?: string | null;
+  soundcloudRedirectUri?: string | null;
+  youtubeClientId?: string | null;
+  youtubeClientSecret?: string | null;
+  youtubeRedirectUri?: string | null;
 }
 
 export function resolveMusicEndpoint(path: string): string {
@@ -89,8 +88,4 @@ export function saveMusicConfiguration(patch: MusicConfigurationPatch, signal?: 
     },
     signal
   );
-}
-
-export function clearMusicConfiguration(signal?: AbortSignal) {
-  return fetchMusicJson<MusicConfigurationStatus>('/config', { method: 'DELETE' }, signal);
 }

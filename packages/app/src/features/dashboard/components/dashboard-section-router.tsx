@@ -519,7 +519,7 @@ function DashboardSectionRouterComponent({ controller }: DashboardSectionRouterP
   } else if (activeSection === 'music') {
     sectionContent = (
       <Suspense fallback={<LoadingSpinner />}>
-        <MusicSection />
+        <MusicSection includeNavetTargets />
       </Suspense>
     );
   } else if (activeSection === 'settings') {

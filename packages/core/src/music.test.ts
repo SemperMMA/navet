@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createMusicItemKey, isMusicSourceId } from './music';
+import { createMusicItemKey, createMusicTargetKey, isMusicSourceId } from './music';
 
 describe('music contracts', () => {
   it('keeps source-scoped item identities distinct', () => {
@@ -11,10 +11,18 @@ describe('music contracts', () => {
     );
   });
 
-  it('accepts only implemented music source identifiers', () => {
+  it('keeps adapter-scoped playback target identities distinct', () => {
+    expect(createMusicTargetKey({ adapterId: 'spotify-connect', id: 'speaker-1' })).not.toBe(
+      createMusicTargetKey({ adapterId: 'navet-music-engine', id: 'speaker-1' })
+    );
+  });
+
+  it('accepts safe runtime music source identifiers without a core allowlist', () => {
     expect(isMusicSourceId('spotify')).toBe(true);
     expect(isMusicSourceId('apple_music')).toBe(true);
-    expect(isMusicSourceId('home_assistant')).toBe(false);
-    expect(isMusicSourceId('youtube_music')).toBe(false);
+    expect(isMusicSourceId('youtube_music')).toBe(true);
+    expect(isMusicSourceId('soundcloud')).toBe(true);
+    expect(isMusicSourceId('YouTube Music')).toBe(false);
+    expect(isMusicSourceId('../spotify')).toBe(false);
   });
 });

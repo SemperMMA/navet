@@ -36,6 +36,8 @@ COPY apps/standalone apps/standalone
 COPY packages packages
 COPY assets assets
 COPY scripts scripts
+COPY docker/njs/music-provider-policy.js docker/njs/music-provider-policy.js
+COPY docker/njs/music-provider-policy.d.ts docker/njs/music-provider-policy.d.ts
 RUN NAVET_ENABLE_DEMO=$NAVET_ENABLE_DEMO pnpm build
 
 FROM ${BUILD_FROM}
@@ -56,6 +58,7 @@ COPY docker/njs/openhab-store.js /etc/nginx/njs/openhab-store.js
 COPY docker/njs/openhab-proxy.js /etc/nginx/njs/openhab-proxy.js
 COPY docker/njs/homey-store.js /etc/nginx/njs/homey-store.js
 COPY docker/njs/music-store.js /etc/nginx/njs/music-store.js
+COPY docker/njs/music-provider-policy.js /etc/nginx/njs/music-provider-policy.js
 COPY docker/njs/homey-proxy.js /etc/nginx/njs/homey-proxy.js
 COPY docker/snippets/navet-rss-proxy.conf /etc/nginx/snippets/navet-rss-proxy.conf
 COPY docker/snippets/navet-profile-store.conf /etc/nginx/snippets/navet-profile-store.conf

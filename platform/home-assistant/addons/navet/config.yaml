@@ -24,6 +24,12 @@ options:
   allow_insecure_provider_tls: false
   spotify_client_id: ""
   spotify_redirect_uri: ""
+  soundcloud_client_id: ""
+  soundcloud_client_secret: ""
+  soundcloud_redirect_uri: ""
+  youtube_client_id: ""
+  youtube_client_secret: ""
+  youtube_redirect_uri: ""
 schema:
   dashboard_config_url: str?
   homey_client_id: str?
@@ -32,5 +38,11 @@ schema:
   allow_insecure_provider_tls: bool
   spotify_client_id: str?
   spotify_redirect_uri: str?
+  soundcloud_client_id: str?
+  soundcloud_client_secret: password?
+  soundcloud_redirect_uri: str?
+  youtube_client_id: str?
+  youtube_client_secret: password?
+  youtube_redirect_uri: str?
   hass_url: str?
   token: password?

@@ -166,6 +166,24 @@ function createProviderSessionStore(options) {
   const maxRecordBytes = settings.maxRecordBytes;
   const createRecord = settings.createRecord;
   const isValidRecord = settings.isValidRecord;
+  const isActiveRecord =
+    typeof settings.isActiveRecord === 'function'
+      ? settings.isActiveRecord
+      : function (record, now) {
+          if (record && record.auth) return true;
+          return Boolean(
+            record &&
+              record.pending &&
+              typeof record.pending.expiresAt === 'number' &&
+              record.pending.expiresAt >= now
+          );
+        };
+  const isAuthenticatedRecord =
+    typeof settings.isAuthenticatedRecord === 'function'
+      ? settings.isAuthenticatedRecord
+      : function (record) {
+          return Boolean(record && record.auth);
+        };
   const idleTtlMs = settings.idleTtlMs || SESSION_IDLE_TTL_MS;
   const maxSessions = settings.maxSessions || DEFAULT_MAX_SESSIONS;
   // nginx evaluates the proxy URL, authorization, and cookie js_set handlers
@@ -316,24 +334,10 @@ function createProviderSessionStore(options) {
   }
 
   function isExpiredRecord(record, now) {
-    if (
-      !record ||
-      typeof record.updatedAt !== 'number' ||
-      record.updatedAt + idleTtlMs < now
-    ) {
+    if (!record || typeof record.updatedAt !== 'number' || record.updatedAt + idleTtlMs < now) {
       return true;
     }
-
-    if (!record.auth && !record.pending) {
-      return true;
-    }
-
-    return Boolean(
-      !record.auth &&
-        record.pending &&
-        typeof record.pending.expiresAt === 'number' &&
-        record.pending.expiresAt < now
-    );
+    return !isActiveRecord(record, now);
   }
 
   function readSession(cookieId) {
@@ -406,8 +410,8 @@ function createProviderSessionStore(options) {
       }
     }
     contexts.sort(function (left, right) {
-      const leftAuthenticated = Boolean(left.session.auth);
-      const rightAuthenticated = Boolean(right.session.auth);
+      const leftAuthenticated = isAuthenticatedRecord(left.session);
+      const rightAuthenticated = isAuthenticatedRecord(right.session);
       if (leftAuthenticated !== rightAuthenticated) {
         return leftAuthenticated ? -1 : 1;
       }
@@ -455,7 +459,7 @@ function createProviderSessionStore(options) {
       const record = readSession(match[1]);
       if (record) {
         active.push({
-          authenticated: Boolean(record.auth),
+          authenticated: isAuthenticatedRecord(record),
           cookieId: match[1],
           updatedAt: record.updatedAt,
         });
@@ -674,7 +678,7 @@ function createProviderSessionStore(options) {
 
   function touchRequestSession(r, minimumIntervalMs) {
     const context = getRequestSession(r);
-    if (!context || !context.session.auth) {
+    if (!context || !isAuthenticatedRecord(context.session)) {
       return '';
     }
 

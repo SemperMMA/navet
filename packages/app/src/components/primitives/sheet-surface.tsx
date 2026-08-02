@@ -23,6 +23,8 @@ export interface SheetSurfaceProps {
   bodyClassName?: string;
   contentStyle?: CSSProperties;
   contentGlowClassName?: string;
+  /** Sheet surfaces are mobile-only by default; set false for workflows available at every breakpoint. */
+  mobileOnly?: boolean;
 }
 
 export interface SheetSurfaceHeaderProps {
@@ -74,7 +76,7 @@ export function SheetSurfaceHeader({
           aria-label={closeLabel}
           onClick={onClose}
           className={cn(
-            'flex h-10 w-10 shrink-0 items-center justify-center rounded-[18px] transition-colors',
+            'flex h-11 w-11 shrink-0 items-center justify-center rounded-[18px] transition-colors',
             surface.subtleBg,
             surface.hoverBg
           )}
@@ -98,8 +100,10 @@ export function SheetSurface({
   bodyClassName,
   contentStyle,
   contentGlowClassName,
+  mobileOnly = true,
 }: SheetSurfaceProps) {
   const { theme } = useTheme();
+  const responsiveContentClassName = mobileOnly ? '' : 'md:bottom-5 md:mx-auto md:mb-0 md:block';
   return (
     <BaseCardDialog
       variant="sheet"
@@ -110,8 +114,15 @@ export function SheetSurface({
       theme={theme}
       contentTitle={title}
       contentDescription={description}
-      overlayClassName={overlayClassName ?? getUiKitSheetOverlayClassName(theme)}
-      contentClassName={cn(getUiKitSheetContentClassName(theme), contentClassName)}
+      overlayClassName={cn(
+        overlayClassName ?? getUiKitSheetOverlayClassName(theme),
+        mobileOnly ? '' : 'md:block'
+      )}
+      contentClassName={cn(
+        getUiKitSheetContentClassName(theme),
+        responsiveContentClassName,
+        contentClassName
+      )}
       contentGlowClassName={contentGlowClassName ?? getUiKitGlassSheetGlowClassName(theme)}
       contentStyle={contentStyle}
       accentColor={accentColor}

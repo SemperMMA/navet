@@ -15,6 +15,12 @@ function createMockFs(files: Record<string, string> = {}) {
       return value;
     }),
     writeFileSync: vi.fn((path: string, value: string) => fileMap.set(path, value)),
+    renameSync: vi.fn((from: string, to: string) => {
+      const value = fileMap.get(from);
+      if (value === undefined) throw new Error(`ENOENT: ${from}`);
+      fileMap.set(to, value);
+      fileMap.delete(from);
+    }),
     unlinkSync: vi.fn((path: string) => {
       if (!fileMap.delete(path)) {
         const error = new Error(`ENOENT: ${path}`);
@@ -27,12 +33,23 @@ function createMockFs(files: Record<string, string> = {}) {
   };
 }
 
-function createRequest(method = 'GET', requestText = '') {
+function createRequest(
+  method = 'GET',
+  requestText = '',
+  options: {
+    headers?: Record<string, string>;
+    uri?: string;
+  } = {}
+) {
   return {
-    uri: '/__navet_music__/config',
+    uri: options.uri ?? '/__navet_music__/config',
     method,
     requestText,
-    headersIn: { Host: 'navet.local:5200' },
+    headersIn: {
+      Host: 'navet.local:5200',
+      Origin: 'http://navet.local:5200',
+      ...options.headers,
+    },
     headersOut: {} as Record<string, string>,
     return: vi.fn(),
   };
@@ -84,44 +101,59 @@ describe('music-store', () => {
     expect(startParams.get('authorize')).toContain('https://accounts.spotify.com/authorize');
   });
 
-  it('stores Spotify configuration in /data and returns only masked status', async () => {
+  it('stores installation credentials from a same-origin Navet UI without returning secrets', async () => {
     const mockFs = createMockFs();
     musicStore.setMusicConfigFsForTests(mockFs);
+    const appleMusicDeveloperToken = `header.payload.${'signature'.repeat(20)}`;
     const request = createRequest(
       'PUT',
       JSON.stringify({
         spotifyClientId: 'spotify-client-1234',
+        appleMusicDeveloperToken,
+        soundcloudClientId: 'soundcloud-client-5678',
+        soundcloudClientSecret: 'soundcloud-secret-value',
+        youtubeClientId: 'youtube-client-9012',
+        youtubeClientSecret: 'youtube-secret-value',
       })
     );
 
     await musicStore.handle(request);
 
-    expect(mockFs.getFile('/data/navet-music-config.json')).toContain('spotify-client-1234');
-    const responseBody = String(request.return.mock.calls[0]?.[1]);
-    expect(JSON.parse(responseBody)).toMatchObject({
+    expect(request.return).toHaveBeenCalledWith(200, expect.any(String));
+    const response = JSON.parse(request.return.mock.calls[0]?.[1] as string);
+    expect(response).toMatchObject({
       spotify: { configured: true, source: 'stored', clientIdHint: '1234' },
+      apple: { configured: true, source: 'stored' },
+      soundcloud: { configured: true, source: 'stored', secretConfigured: true },
+      youtube: { configured: true, source: 'stored', secretConfigured: true },
     });
+    expect(JSON.stringify(response)).not.toContain('soundcloud-secret-value');
+    expect(JSON.stringify(response)).not.toContain('youtube-secret-value');
+    expect(JSON.stringify(response)).not.toContain(appleMusicDeveloperToken);
+    expect(mockFs.getFile('/data/navet-music-config.json')).toContain('soundcloud-secret-value');
   });
 
-  it('migrates stored Spotify settings without retaining a legacy Apple developer token', () => {
+  it('preserves a valid stored Apple developer token while dropping malformed legacy fields', () => {
+    const appleMusicDeveloperToken = `header.payload.${'signature'.repeat(20)}`;
     const mockFs = createMockFs({
       '/data/navet-music-config.json': JSON.stringify({
         spotifyClientId: 'spotify-client-1234',
-        appleMusicDeveloperToken: 'legacy-user-supplied-token',
+        appleMusicDeveloperToken,
+        applePrivateKey: 'never-store-this',
       }),
     });
     musicStore.setMusicConfigFsForTests(mockFs);
 
-    expect(musicStore.readMusicConfig()).toEqual({ spotifyClientId: 'spotify-client-1234' });
-    expect(mockFs.getFile('/data/navet-music-config.json')).not.toContain(
-      'legacy-user-supplied-token'
-    );
-    expect(musicStore.isMusicConfigPatch({ appleMusicDeveloperToken: 'no-longer-supported' })).toBe(
-      false
-    );
+    expect(musicStore.readMusicConfig()).toEqual({
+      spotifyClientId: 'spotify-client-1234',
+      appleMusicDeveloperToken,
+    });
+    expect(mockFs.getFile('/data/navet-music-config.json')).not.toContain('never-store-this');
+    expect(musicStore.isMusicConfigPatch({ appleMusicDeveloperToken })).toBe(true);
+    expect(musicStore.isMusicConfigPatch({ appleMusicDeveloperToken: 'malformed' })).toBe(false);
   });
 
-  it('rejects unknown configuration fields', async () => {
+  it('rejects unknown or malformed configuration fields', async () => {
     const mockFs = createMockFs();
     musicStore.setMusicConfigFsForTests(mockFs);
     const request = createRequest('PUT', JSON.stringify({ applePrivateKey: 'never-store-this' }));
@@ -130,9 +162,53 @@ describe('music-store', () => {
 
     expect(request.return).toHaveBeenCalledWith(
       400,
-      JSON.stringify({ error: 'Unsupported music configuration' })
+      JSON.stringify({ error: 'Invalid music configuration' })
     );
     expect(mockFs.getFile('/data/navet-music-config.json')).toBeUndefined();
+  });
+
+  it('rejects configuration mutation from cross-origin callers', async () => {
+    const mockFs = createMockFs();
+    musicStore.setMusicConfigFsForTests(mockFs);
+    const request = createRequest(
+      'PUT',
+      JSON.stringify({ spotifyClientId: 'spotify-client-1234' }),
+      { headers: { Origin: 'https://attacker.example' } }
+    );
+
+    await musicStore.handle(request);
+
+    expect(request.return).toHaveBeenCalledWith(
+      403,
+      JSON.stringify({ error: 'Cross-origin music configuration is not allowed' })
+    );
+    expect(mockFs.getFile('/data/navet-music-config.json')).toBeUndefined();
+  });
+
+  it('allows only known same-origin music-engine operations', () => {
+    expect(
+      musicStore.engineRequestAllowed(
+        createRequest('GET', '', { uri: '/__navet_music_engine__/queue' })
+      )
+    ).toBe('1');
+    expect(
+      musicStore.engineRequestAllowed(
+        createRequest('POST', '', { uri: '/__navet_music_engine__/control' })
+      )
+    ).toBe('1');
+    expect(
+      musicStore.engineRequestAllowed(
+        createRequest('POST', '', {
+          headers: { Origin: 'https://attacker.example' },
+          uri: '/__navet_music_engine__/control',
+        })
+      )
+    ).toBe('');
+    expect(
+      musicStore.engineRequestAllowed(
+        createRequest('DELETE', '', { uri: '/__navet_music_engine__/queue' })
+      )
+    ).toBe('');
   });
 
   it('accepts only secure Spotify redirect URIs supported by the packaged njs runtime', () => {

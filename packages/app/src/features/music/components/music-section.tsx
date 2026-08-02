@@ -1,7 +1,6 @@
-import { ImageWithFallback } from '@navet/app/components/figma/ImageWithFallback';
-import { Button } from '@navet/app/components/primitives/button';
-import { Slider } from '@navet/app/components/primitives/slider';
+import { Button, SheetSurface, SheetSurfaceHeader } from '@navet/app/components/primitives';
 import { getThemeSurfaceTokens } from '@navet/app/components/shared/theme/theme-surface-tokens';
+import { getThemeFocusRingClassName } from '@navet/app/components/system/tokens';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -12,68 +11,39 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@navet/app/components/ui/alert-dialog';
-import { Checkbox } from '@navet/app/components/ui/checkbox';
 import { createNavetMediaPlaybackTargetAdapter } from '@navet/app/features/music/adapters/navet-media-target-adapter';
-import { MusicSetupPanel } from '@navet/app/features/music/components/music-setup-panel';
+import { MusicLibraryBrowser } from '@navet/app/features/music/components/music-library-browser';
+import { MusicNowPlayingBar } from '@navet/app/features/music/components/music-now-playing-bar';
+import { MusicOutputPanel } from '@navet/app/features/music/components/music-output-panel';
+import { MusicPlaylistSheet } from '@navet/app/features/music/components/music-playlist-sheet';
+import { MusicServiceSheet } from '@navet/app/features/music/components/music-service-sheet';
+import { SoundCloudPlayerSurface } from '@navet/app/features/music/components/soundcloud-player-surface';
+import { YouTubePlayerSurface } from '@navet/app/features/music/components/youtube-player-surface';
 import { getMusicRuntime } from '@navet/app/features/music/music-runtime';
 import { useDeviceCollectionsByKeys, useI18n, useTheme } from '@navet/app/hooks';
-import { sanitizeImageUrl } from '@navet/app/utils/url-security';
-import type {
-  MusicAccountStatus,
-  MusicItem,
-  MusicPlaybackSnapshot,
-  MusicPlaybackTarget,
-  MusicPlaybackTargetAdapter,
-  MusicQueueSnapshot,
-  MusicSearchSection,
-  MusicSourceAdapter,
-  MusicSourceId,
-  MusicTransportCommand,
-} from '@navet/core/music';
 import {
-  Apple,
-  Disc3,
-  ListMusic,
-  Loader2,
-  Music2,
-  Pause,
-  Play,
-  Repeat,
-  Repeat1,
-  Search,
-  Shuffle,
-  SkipBack,
-  SkipForward,
-  Speaker,
-  Unlink,
-  Unplug,
-  Users,
-  Volume2,
-} from 'lucide-react';
-import { type FormEvent, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+  createMusicItemKey,
+  createMusicTargetKey,
+  type MusicAccountStatus,
+  type MusicBrowseSection,
+  type MusicItem,
+  type MusicPlaybackSnapshot,
+  type MusicPlaybackState,
+  type MusicPlaybackTarget,
+  type MusicPlaybackTargetAdapter,
+  type MusicQueuePosition,
+  type MusicQueueSnapshot,
+  type MusicSearchSection,
+  type MusicSourceAdapter,
+  type MusicSourceId,
+  type MusicTransportCommand,
+} from '@navet/core/music';
+import { Headphones, Search, Speaker } from 'lucide-react';
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
-const { sources: BUILT_IN_SOURCES, targets: BUILT_IN_TARGETS } = getMusicRuntime();
 const EMPTY_STATUSES: Partial<Record<MusicSourceId, MusicAccountStatus>> = {};
 const MUSIC_DEVICE_COLLECTION_KEYS = ['media'] as const;
-const SOURCE_COLORS: Record<MusicSourceId, string> = {
-  spotify: '#1DB954',
-  apple_music: '#fa2d48',
-};
-
-function sourceLabel(sourceId: MusicSourceId) {
-  return sourceId === 'spotify' ? 'Spotify' : 'Apple Music';
-}
-
-function sourceIcon(sourceId: MusicSourceId) {
-  return sourceId === 'spotify' ? Disc3 : Apple;
-}
-
-function formatDuration(durationMs?: number) {
-  if (!durationMs || durationMs < 0) return '';
-  const totalSeconds = Math.floor(durationMs / 1000);
-  return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')}`;
-}
 
 export function getMusicErrorMessage(error: unknown, fallback: string) {
   if (error instanceof Error && error.message) return error.message;
@@ -113,136 +83,61 @@ export function collapseQueueEntries(queue: MusicQueueSnapshot | null) {
   }, []);
 }
 
-function MusicArtwork({ item, className }: { item: MusicItem; className: string }) {
-  const safeArtwork = sanitizeImageUrl(
-    item.artworkUrl,
-    typeof window === 'undefined' ? undefined : window.location.origin
-  );
-  return safeArtwork ? (
-    <ImageWithFallback src={safeArtwork} alt="" className={`${className} object-cover`} />
-  ) : (
-    <div className={`${className} flex items-center justify-center bg-current/5`}>
-      <Music2 className="h-5 w-5 opacity-45" aria-hidden="true" />
-    </div>
-  );
+function supportsQueuePosition(target: MusicPlaybackTarget, position: MusicQueuePosition) {
+  const positions = target.capabilities?.queuePositions;
+  return positions ? positions.includes(position) : position === 'later';
 }
 
-function AccountCard({
-  source,
-  status,
-  onConnect,
-  onDisconnect,
-  onConfigure,
-  busy,
-}: {
-  source: MusicSourceAdapter;
-  status?: MusicAccountStatus;
-  onConnect: () => void;
-  onDisconnect: () => void;
-  onConfigure: () => void;
-  busy: boolean;
-}) {
-  const { t } = useI18n();
-  const { theme } = useTheme();
-  const surface = getThemeSurfaceTokens(theme);
-  const Icon = sourceIcon(source.id);
-  const connected = status?.state === 'connected';
-  const unavailable = status?.state === 'unavailable';
-  const requiresSetup = unavailable && source.id === 'spotify';
-
-  return (
-    <div
-      className={`flex min-w-0 items-center gap-3 rounded-3xl border p-3 ${surface.panelMuted} ${surface.border}`}
-    >
-      <div
-        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-white"
-        style={{ backgroundColor: SOURCE_COLORS[source.id] }}
-      >
-        <Icon className="h-5 w-5" aria-hidden="true" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className={`truncate text-sm font-semibold ${surface.textPrimary}`}>{source.name}</p>
-        <p className={`truncate text-xs ${surface.textMuted}`}>
-          {connected
-            ? status.displayName || t('musicHub.connected')
-            : unavailable
-              ? status.reason
-              : t('musicHub.disconnect')}
-        </p>
-      </div>
-      <div className="flex shrink-0 items-center gap-1">
-        {source.id === 'spotify' && !requiresSetup ? (
-          <Button size="small" variant="ghost" disabled={busy} onClick={onConfigure}>
-            {t('musicHub.setup.editAction')}
-          </Button>
-        ) : null}
-        <Button
-          size="small"
-          variant={connected ? 'ghost' : 'secondary'}
-          disabled={busy}
-          loading={busy}
-          onClick={connected ? onDisconnect : requiresSetup ? onConfigure : onConnect}
-        >
-          {connected
-            ? t('musicHub.disconnect')
-            : requiresSetup
-              ? t('musicHub.setup.action')
-              : source.id === 'apple_music'
-                ? t('musicHub.authenticate')
-                : t('musicHub.connect')}
-        </Button>
-      </div>
-    </div>
-  );
+function updateItemFavorite(item: MusicItem, key: string, favorite: boolean) {
+  return createMusicItemKey(item) === key ? { ...item, isFavorite: favorite } : item;
 }
 
-function ResultRow({
-  item,
-  onPlay,
-  onEnqueue,
-  busy,
-}: {
-  item: MusicItem;
-  onPlay: () => void;
-  onEnqueue: () => void;
-  busy: boolean;
-}) {
-  const { t } = useI18n();
-  const { theme } = useTheme();
-  const surface = getThemeSurfaceTokens(theme);
-  return (
-    <div className={`group flex items-center gap-3 rounded-2xl px-2 py-2 ${surface.hoverBg}`}>
-      <MusicArtwork item={item} className="h-12 w-12 shrink-0 rounded-xl" />
-      <div className="min-w-0 flex-1">
-        <p className={`truncate text-sm font-medium ${surface.textPrimary}`}>{item.title}</p>
-        <p className={`truncate text-xs ${surface.textMuted}`}>
-          {[item.artists.join(', '), item.album, formatDuration(item.durationMs)]
-            .filter(Boolean)
-            .join(' · ')}
-        </p>
-      </div>
-      <button
-        type="button"
-        className={`hidden rounded-full px-3 py-2 text-xs font-medium md:block ${surface.textSecondary} ${surface.subtleBg} ${surface.hoverBg} ${item.type === 'track' ? '' : 'invisible'}`}
-        disabled={busy || !item.playable || item.type !== 'track'}
-        onClick={onEnqueue}
-        aria-hidden={item.type !== 'track'}
-        tabIndex={item.type === 'track' ? 0 : -1}
-      >
-        {t('musicHub.addQueue')}
-      </button>
-      <Button
-        iconOnly
-        label={`${t('musicHub.play')} ${item.title}`}
-        size="small"
-        disabled={busy || !item.playable}
-        loading={busy}
-        onClick={onPlay}
-      >
-        <Play className="h-4 w-4 fill-current" />
-      </Button>
-    </div>
-  );
+function updateBrowseSections(sections: MusicBrowseSection[], key: string, favorite: boolean) {
+  return sections.map((section) => ({
+    ...section,
+    items: section.items.map((item) => updateItemFavorite(item, key, favorite)),
+  }));
+}
+
+function updateSearchSections(sections: MusicSearchSection[], key: string, favorite: boolean) {
+  return sections.map((section) => ({
+    ...section,
+    items: section.items.map((item) => updateItemFavorite(item, key, favorite)),
+  }));
+}
+
+function mergeBrowseSectionPage(
+  sections: MusicBrowseSection[],
+  page: MusicBrowseSection
+): MusicBrowseSection[] {
+  return sections.map((section) => {
+    if (section.sourceId !== page.sourceId || section.id !== page.id) return section;
+    const existingKeys = new Set(section.items.map(createMusicItemKey));
+    const additionalItems = page.items.filter((item) => {
+      const key = createMusicItemKey(item);
+      if (existingKeys.has(key)) return false;
+      existingKeys.add(key);
+      return true;
+    });
+    return {
+      ...section,
+      items: [...section.items, ...additionalItems],
+      continuation: additionalItems.length ? page.continuation : undefined,
+    };
+  });
+}
+
+function chooseTargetKey(targets: MusicPlaybackTarget[], current: string | null) {
+  if (
+    current &&
+    targets.some((target) => createMusicTargetKey(target) === current && target.available)
+  ) {
+    return current;
+  }
+  const preferred =
+    targets.find((target) => target.isActive && target.available) ??
+    targets.find((target) => target.available);
+  return preferred ? createMusicTargetKey(preferred) : null;
 }
 
 interface MusicSectionProps {
@@ -252,17 +147,22 @@ interface MusicSectionProps {
 }
 
 export function MusicSection({
-  sourceAdapters = BUILT_IN_SOURCES,
-  playbackTargetAdapters = BUILT_IN_TARGETS,
+  sourceAdapters: providedSourceAdapters,
+  playbackTargetAdapters: providedPlaybackTargetAdapters,
   includeNavetTargets = false,
 }: MusicSectionProps = {}) {
   const { t } = useI18n();
-  const { theme, accentColor } = useTheme();
+  const { theme } = useTheme();
   const surface = getThemeSurfaceTokens(theme);
+  const builtInRuntime = useMemo(() => getMusicRuntime(), []);
+  const sourceAdapters = providedSourceAdapters ?? builtInRuntime.sources;
+  const playbackTargetAdapters = providedPlaybackTargetAdapters ?? builtInRuntime.targets;
   const mediaDevices = useDeviceCollectionsByKeys(MUSIC_DEVICE_COLLECTION_KEYS).media;
+  const mediaDevicesRef = useRef(mediaDevices);
+  mediaDevicesRef.current = mediaDevices;
   const navetTargetAdapter = useMemo(
-    () => createNavetMediaPlaybackTargetAdapter(() => mediaDevices),
-    [mediaDevices]
+    () => createNavetMediaPlaybackTargetAdapter(() => mediaDevicesRef.current),
+    []
   );
   const targetAdapters = useMemo(
     () =>
@@ -271,184 +171,328 @@ export function MusicSection({
         : playbackTargetAdapters,
     [includeNavetTargets, navetTargetAdapter, playbackTargetAdapters]
   );
+
   const [statuses, setStatuses] = useState(EMPTY_STATUSES);
+  const [statusesLoading, setStatusesLoading] = useState(true);
   const [accountBusy, setAccountBusy] = useState<MusicSourceId | null>(null);
   const [query, setQuery] = useState('');
-  const deferredQuery = useDeferredValue(query.trim());
   const [submittedQuery, setSubmittedQuery] = useState('');
-  const [sections, setSections] = useState<MusicSearchSection[]>([]);
-  const [librarySections, setLibrarySections] = useState<MusicSearchSection[]>([]);
-  const [libraryError, setLibraryError] = useState<string | null>(null);
+  const [searchSections, setSearchSections] = useState<MusicSearchSection[]>([]);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
+  const [searchRefresh, setSearchRefresh] = useState(0);
+  const [librarySections, setLibrarySections] = useState<MusicBrowseSection[]>([]);
+  const [libraryError, setLibraryError] = useState<string | null>(null);
+  const [libraryLoading, setLibraryLoading] = useState(false);
+  const [libraryRefresh, setLibraryRefresh] = useState(0);
+  const [sourceFilter, setSourceFilter] = useState<'all' | MusicSourceId>('all');
+  const [selectedItem, setSelectedItem] = useState<MusicItem | null>(null);
+  const [playlistItem, setPlaylistItem] = useState<MusicItem | null>(null);
+  const [detailSections, setDetailSections] = useState<MusicBrowseSection[]>([]);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailRefresh, setDetailRefresh] = useState(0);
   const [selectedSourceId, setSelectedSourceId] = useState<MusicSourceId>('spotify');
   const [targets, setTargets] = useState<MusicPlaybackTarget[]>([]);
-  const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
+  const targetsRef = useRef<MusicPlaybackTarget[]>([]);
+  const [targetError, setTargetError] = useState<string | null>(null);
+  const [selectedTargetKey, setSelectedTargetKey] = useState<string | null>(null);
   const [playback, setPlayback] = useState<MusicPlaybackSnapshot | null>(null);
   const [queue, setQueue] = useState<MusicQueueSnapshot | null>(null);
   const [pendingItem, setPendingItem] = useState<MusicItem | null>(null);
   const [playingKey, setPlayingKey] = useState<string | null>(null);
+  const [favoriteBusyKey, setFavoriteBusyKey] = useState<string | null>(null);
+  const [pageBusyKey, setPageBusyKey] = useState<string | null>(null);
   const [servicesOpen, setServicesOpen] = useState(false);
-  const [spotifySetupOpen, setSpotifySetupOpen] = useState(false);
+  const [listeningOpen, setListeningOpen] = useState(false);
   const [groupingOpen, setGroupingOpen] = useState(false);
-  const [groupMemberIds, setGroupMemberIds] = useState<string[]>([]);
   const [groupBusy, setGroupBusy] = useState(false);
-  const [seekDraft, setSeekDraft] = useState<number | null>(null);
-  const [volumeDraft, setVolumeDraft] = useState<number | null>(null);
+  const targetLoadIdRef = useRef(0);
+
+  const commitTargets = useCallback((next: MusicPlaybackTarget[]) => {
+    targetsRef.current = next;
+    setTargets(next);
+    setSelectedTargetKey((current) => chooseTargetKey(next, current));
+  }, []);
 
   const refreshStatuses = useCallback(async () => {
-    const settled = await Promise.allSettled(
-      sourceAdapters.map(async (source) => [source.id, await source.getAccountStatus()] as const)
+    setStatusesLoading(true);
+    const settled = await Promise.all(
+      sourceAdapters.map(async (source) => {
+        try {
+          return [source.id, await source.getAccountStatus()] as const;
+        } catch (error) {
+          return [
+            source.id,
+            {
+              state: 'unavailable',
+              reason: getMusicErrorMessage(error, t('musicHub.providerFailed')),
+            } satisfies MusicAccountStatus,
+          ] as const;
+        }
+      })
     );
     const next: Partial<Record<MusicSourceId, MusicAccountStatus>> = {};
     for (const result of settled) {
-      if (result.status === 'fulfilled') next[result.value[0]] = result.value[1];
+      next[result[0]] = result[1];
     }
     setStatuses(next);
-  }, [sourceAdapters]);
+    setStatusesLoading(false);
+  }, [sourceAdapters, t]);
 
   useEffect(() => {
     void refreshStatuses();
-    const callbackStatus = new URLSearchParams(window.location.search).get('status');
-    if (callbackStatus === 'connected') toast.success('Spotify connected');
-    if (callbackStatus === 'failed') toast.error('Spotify connection failed');
-  }, [refreshStatuses]);
+    const callbackUrl = new URL(window.location.href);
+    const callbackStatus = callbackUrl.searchParams.get('status');
+    const callbackSourceId = callbackUrl.searchParams.get('music_oauth');
+    const callbackSource = sourceAdapters.find((source) => source.id === callbackSourceId);
+    if (callbackStatus === 'connected' && callbackSource) {
+      toast.success(`${callbackSource.name} · ${t('musicHub.connected')}`);
+    }
+    if (callbackStatus === 'failed') toast.error(t('musicHub.providerFailed'));
+    if (callbackStatus || callbackSourceId) {
+      callbackUrl.searchParams.delete('status');
+      callbackUrl.searchParams.delete('music_oauth');
+      window.history.replaceState(window.history.state, '', callbackUrl);
+    }
+  }, [refreshStatuses, sourceAdapters, t]);
+
+  const connectedSources = useMemo(
+    () => sourceAdapters.filter((source) => statuses[source.id]?.state === 'connected'),
+    [sourceAdapters, statuses]
+  );
+  const playlistSource = useMemo(
+    () =>
+      playlistItem
+        ? (connectedSources.find((source) => source.id === playlistItem.sourceId) ?? null)
+        : null,
+    [connectedSources, playlistItem]
+  );
+  const canAddToPlaylist = useCallback(
+    (item: MusicItem) => {
+      const source = connectedSources.find((candidate) => candidate.id === item.sourceId);
+      return Boolean(
+        source?.capabilities.playlistMutation &&
+          source.listEditablePlaylists &&
+          source.addToPlaylist &&
+          source.canAddToPlaylist?.(item) !== false
+      );
+    },
+    [connectedSources]
+  );
 
   useEffect(() => {
-    const firstConnected = sourceAdapters.find(
-      (source) => statuses[source.id]?.state === 'connected'
-    );
+    const firstConnected = connectedSources[0];
     if (firstConnected && statuses[selectedSourceId]?.state !== 'connected') {
       setSelectedSourceId(firstConnected.id);
     }
-  }, [selectedSourceId, sourceAdapters, statuses]);
+  }, [connectedSources, selectedSourceId, statuses]);
+
+  useEffect(() => {
+    if (sourceFilter !== 'all' && statuses[sourceFilter]?.state !== 'connected') {
+      setSourceFilter('all');
+    }
+  }, [sourceFilter, statuses]);
 
   const loadTargets = useCallback(
     async (sourceId: MusicSourceId) => {
-      const settled = await Promise.allSettled(
-        targetAdapters.map((adapter) => adapter.listTargets(sourceId))
+      const loadId = ++targetLoadIdRef.current;
+      const results = targetAdapters.map((): MusicPlaybackTarget[] => []);
+      const errors: unknown[] = [];
+      setTargetError(null);
+      if (!targetAdapters.length) {
+        commitTargets([]);
+        return [];
+      }
+      await Promise.all(
+        targetAdapters.map(async (adapter, index) => {
+          try {
+            results[index] = await adapter.listTargets(sourceId);
+          } catch (error) {
+            errors.push(error);
+          }
+          if (targetLoadIdRef.current !== loadId) return;
+          commitTargets(results.flat());
+          setTargetError(
+            errors.length ? getMusicErrorMessage(errors[0], t('musicHub.providerFailed')) : null
+          );
+        })
       );
-      const next = settled.flatMap((result) => (result.status === 'fulfilled' ? result.value : []));
-      setTargets(next);
-      const preferred =
-        next.find((target) => target.isActive && target.available) ??
-        next.find((target) => target.available);
-      setSelectedTargetId((current) =>
-        next.some((target) => target.id === current && target.available)
-          ? current
-          : (preferred?.id ?? null)
-      );
-      return next;
+      return results.flat();
     },
-    [targetAdapters]
+    [commitTargets, t, targetAdapters]
   );
 
   useEffect(() => {
     if (statuses[selectedSourceId]?.state !== 'connected') {
-      setTargets([]);
-      setSelectedTargetId(null);
+      commitTargets([]);
+      setTargetError(null);
       return;
     }
     void loadTargets(selectedSourceId);
-  }, [loadTargets, selectedSourceId, statuses]);
+  }, [commitTargets, loadTargets, selectedSourceId, statuses]);
+
+  useEffect(() => {
+    if (!includeNavetTargets || statuses[selectedSourceId]?.state !== 'connected') return;
+    let active = true;
+    void navetTargetAdapter
+      .listTargets(selectedSourceId)
+      .then((localTargets) => {
+        if (!active) return;
+        commitTargets([
+          ...targetsRef.current.filter((target) => target.adapterId !== navetTargetAdapter.id),
+          ...localTargets,
+        ]);
+      })
+      .catch((error) => {
+        if (active) setTargetError(getMusicErrorMessage(error, t('musicHub.providerFailed')));
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    commitTargets,
+    includeNavetTargets,
+    mediaDevices,
+    navetTargetAdapter,
+    selectedSourceId,
+    statuses,
+    t,
+  ]);
 
   useEffect(() => {
     const controller = new AbortController();
-    const connectedSources = sourceAdapters.filter(
-      (source) => statuses[source.id]?.state === 'connected' && source.browseLibrary
-    );
-    if (connectedSources.length === 0) {
+    const sources = connectedSources.filter((source) => source.browseLibrary);
+    if (!sources.length) {
       setLibrarySections([]);
       setLibraryError(null);
+      setLibraryLoading(false);
       return;
     }
+    setLibraryLoading(true);
+    setLibraryError(null);
     void Promise.allSettled(
-      connectedSources.map(async (source) => ({
-        sourceId: source.id,
-        title: sourceLabel(source.id),
-        items: (await source.browseLibrary?.(controller.signal)) ?? [],
-      }))
+      sources.map(async (source) => (await source.browseLibrary?.(controller.signal)) ?? [])
     ).then((results) => {
       if (controller.signal.aborted) return;
+      const next = results.flatMap((result) => (result.status === 'fulfilled' ? result.value : []));
       const failed = results.find((result) => result.status === 'rejected');
+      setLibrarySections(next);
       setLibraryError(
         failed?.status === 'rejected'
-          ? failed.reason instanceof Error
-            ? failed.reason.message
-            : t('musicHub.providerFailed')
+          ? getMusicErrorMessage(failed.reason, t('musicHub.providerFailed'))
           : null
       );
-      setLibrarySections(
-        results.flatMap((result) => {
-          if (result.status !== 'fulfilled') return [];
-          const artists = result.value.items.filter((item) => item.type === 'artist');
-          const recentlyPlayed = result.value.items.filter((item) => item.type !== 'artist');
-          return [
-            ...(artists.length
-              ? [
-                  {
-                    sourceId: result.value.sourceId,
-                    title: t('musicHub.topArtists'),
-                    items: artists,
-                  },
-                ]
-              : []),
-            ...(recentlyPlayed.length
-              ? [
-                  {
-                    sourceId: result.value.sourceId,
-                    title: t('musicHub.recentlyPlayed'),
-                    items: recentlyPlayed,
-                  },
-                ]
-              : []),
-          ];
-        })
-      );
+      setLibraryLoading(false);
     });
     return () => controller.abort();
-  }, [sourceAdapters, statuses, t]);
+  }, [connectedSources, libraryRefresh, t]);
 
   useEffect(() => {
-    if (!submittedQuery || deferredQuery !== submittedQuery) return;
+    if (!submittedQuery) {
+      setSearchSections([]);
+      setSearchError(null);
+      setSearching(false);
+      return;
+    }
     const controller = new AbortController();
-    const connectedSources = sourceAdapters.filter(
-      (source) => statuses[source.id]?.state === 'connected'
-    );
     setSearching(true);
+    setSearchError(null);
     void Promise.allSettled(
       connectedSources.map(async (source) => ({
         sourceId: source.id,
-        title: sourceLabel(source.id),
+        title: source.name,
         items: await source.search(submittedQuery, controller.signal),
       }))
     ).then((results) => {
       if (controller.signal.aborted) return;
-      setSections(
+      const failed = results.find((result) => result.status === 'rejected');
+      setSearchSections(
         results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
+      );
+      setSearchError(
+        failed?.status === 'rejected'
+          ? getMusicErrorMessage(failed.reason, t('musicHub.providerFailed'))
+          : null
       );
       setSearching(false);
     });
     return () => controller.abort();
-  }, [deferredQuery, sourceAdapters, statuses, submittedQuery]);
-
-  const refreshPlayback = useCallback(async () => {
-    const source = sourceAdapters.find((candidate) => candidate.id === selectedSourceId);
-    if (!source || statuses[selectedSourceId]?.state !== 'connected') return;
-    const [nextPlayback, nextQueue] = await Promise.allSettled([
-      source.getPlaybackSnapshot?.(),
-      source.getQueue?.(),
-    ]);
-    if (nextPlayback.status === 'fulfilled' && nextPlayback.value) {
-      setPlayback(nextPlayback.value);
-    }
-    if (nextQueue.status === 'fulfilled' && nextQueue.value) setQueue(nextQueue.value);
-  }, [selectedSourceId, sourceAdapters, statuses]);
+  }, [connectedSources, searchRefresh, submittedQuery, t]);
 
   useEffect(() => {
-    void refreshPlayback();
-    const interval = window.setInterval(() => void refreshPlayback(), 5_000);
-    return () => window.clearInterval(interval);
-  }, [refreshPlayback]);
+    if (!selectedItem) {
+      setDetailSections([]);
+      setDetailError(null);
+      setDetailLoading(false);
+      return;
+    }
+    const source = sourceAdapters.find((candidate) => candidate.id === selectedItem.sourceId);
+    if (!source?.browseItem) {
+      setDetailSections([]);
+      setDetailLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setDetailLoading(true);
+    setDetailError(null);
+    void source
+      .browseItem(selectedItem, controller.signal)
+      .then((next) => {
+        if (!controller.signal.aborted) setDetailSections(next);
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          setDetailError(getMusicErrorMessage(error, t('musicHub.detailFailed')));
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setDetailLoading(false);
+      });
+    return () => controller.abort();
+  }, [detailRefresh, selectedItem, sourceAdapters, t]);
+
+  const refreshPlayback = useCallback(
+    async (sourceId: MusicSourceId = selectedSourceId): Promise<MusicPlaybackState | undefined> => {
+      const source = sourceAdapters.find((candidate) => candidate.id === sourceId);
+      if (!source || statuses[sourceId]?.state !== 'connected') return undefined;
+      const [nextPlayback, nextQueue] = await Promise.allSettled([
+        source.getPlaybackSnapshot?.(),
+        source.getQueue?.(),
+      ]);
+      if (nextPlayback.status === 'fulfilled' && nextPlayback.value) {
+        setPlayback(nextPlayback.value);
+      }
+      if (nextQueue.status === 'fulfilled' && nextQueue.value) setQueue(nextQueue.value);
+      return nextPlayback.status === 'fulfilled' ? nextPlayback.value?.state : undefined;
+    },
+    [selectedSourceId, sourceAdapters, statuses]
+  );
+
+  useEffect(() => {
+    if (statuses[selectedSourceId]?.state !== 'connected') return;
+    let active = true;
+    let timeoutId: number | null = null;
+    const poll = async () => {
+      if (!active || document.visibilityState !== 'visible') return;
+      const state = await refreshPlayback(selectedSourceId);
+      if (active && document.visibilityState === 'visible') {
+        timeoutId = window.setTimeout(() => void poll(), state === 'playing' ? 5_000 : 15_000);
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      timeoutId = null;
+      if (document.visibilityState === 'visible') void poll();
+    };
+    void poll();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      active = false;
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [refreshPlayback, selectedSourceId, statuses]);
 
   const findTargetAdapter = useCallback(
     (target: MusicPlaybackTarget) =>
@@ -458,13 +502,14 @@ export function MusicSection({
 
   const playItem = useCallback(
     async (item: MusicItem) => {
-      setPlayingKey(`${item.sourceId}:${item.id}`);
+      setPlayingKey(createMusicItemKey(item));
       try {
         const sourceTargets =
           item.sourceId === selectedSourceId ? targets : await loadTargets(item.sourceId);
         const target =
           sourceTargets.find(
-            (candidate) => candidate.id === selectedTargetId && candidate.available
+            (candidate) =>
+              createMusicTargetKey(candidate) === selectedTargetKey && candidate.available
           ) ??
           sourceTargets.find((candidate) => candidate.isActive && candidate.available) ??
           sourceTargets.find((candidate) => candidate.available);
@@ -472,9 +517,9 @@ export function MusicSection({
         const adapter = findTargetAdapter(target);
         if (!adapter) throw new Error(t('musicHub.outputRequired'));
         setSelectedSourceId(item.sourceId);
-        setSelectedTargetId(target.id);
+        setSelectedTargetKey(createMusicTargetKey(target));
         await adapter.play(target.id, item, { replaceQueue: true });
-        await refreshPlayback();
+        await refreshPlayback(item.sourceId);
       } catch (error) {
         toast.error(getMusicErrorMessage(error, t('musicHub.providerFailed')));
       } finally {
@@ -486,7 +531,7 @@ export function MusicSection({
       loadTargets,
       refreshPlayback,
       selectedSourceId,
-      selectedTargetId,
+      selectedTargetKey,
       t,
       targets,
     ]
@@ -504,50 +549,160 @@ export function MusicSection({
   );
 
   const enqueueItem = useCallback(
-    async (item: MusicItem) => {
-      const target = targets.find((candidate) => candidate.id === selectedTargetId);
+    async (item: MusicItem, position: MusicQueuePosition) => {
+      const target = targets.find(
+        (candidate) => createMusicTargetKey(candidate) === selectedTargetKey
+      );
       const adapter = target ? findTargetAdapter(target) : null;
-      if (!target || !adapter?.enqueue || item.sourceId !== selectedSourceId) {
+      const source = sourceAdapters.find((candidate) => candidate.id === item.sourceId);
+      if (
+        !target?.available ||
+        !adapter?.enqueue ||
+        !source?.capabilities.queue ||
+        item.sourceId !== selectedSourceId ||
+        target.capabilities?.enqueue === false ||
+        !supportsQueuePosition(target, position) ||
+        adapter.canEnqueue?.(target.id, item, position) === false
+      ) {
         toast.error(t('musicHub.outputRequired'));
         return;
       }
       try {
-        await adapter.enqueue(target.id, item);
-        await refreshPlayback();
+        await adapter.enqueue(target.id, item, { position });
+        await refreshPlayback(selectedSourceId);
       } catch (error) {
         toast.error(getMusicErrorMessage(error, t('musicHub.providerFailed')));
       }
     },
-    [findTargetAdapter, refreshPlayback, selectedSourceId, selectedTargetId, t, targets]
+    [
+      findTargetAdapter,
+      refreshPlayback,
+      selectedSourceId,
+      selectedTargetKey,
+      sourceAdapters,
+      t,
+      targets,
+    ]
   );
 
   const executeTransport = useCallback(
     async (command: MusicTransportCommand) => {
       const target =
-        targets.find((candidate) => candidate.id === playback?.targetId) ??
-        targets.find((candidate) => candidate.id === selectedTargetId);
+        targets.find(
+          (candidate) =>
+            candidate.id === playback?.targetId &&
+            (!playback.targetAdapterId || candidate.adapterId === playback.targetAdapterId)
+        ) ?? targets.find((candidate) => createMusicTargetKey(candidate) === selectedTargetKey);
       const adapter = target ? findTargetAdapter(target) : null;
       if (!target || !adapter) return;
       try {
         await adapter.execute(target.id, command);
-        await refreshPlayback();
+        await refreshPlayback(selectedSourceId);
       } catch (error) {
         toast.error(getMusicErrorMessage(error, t('musicHub.providerFailed')));
       }
     },
-    [findTargetAdapter, playback?.targetId, refreshPlayback, selectedTargetId, t, targets]
+    [
+      findTargetAdapter,
+      playback?.targetId,
+      refreshPlayback,
+      selectedSourceId,
+      selectedTargetKey,
+      t,
+      targets,
+    ]
+  );
+
+  const toggleFavorite = useCallback(
+    async (item: MusicItem) => {
+      const source = sourceAdapters.find((candidate) => candidate.id === item.sourceId);
+      if (
+        !source?.capabilities.favoriteMutation ||
+        !source.setFavorite ||
+        source.canSetFavorite?.(item) === false
+      ) {
+        return;
+      }
+      const key = createMusicItemKey(item);
+      const favorite = !item.isFavorite;
+      const applyFavorite = (value: boolean) => {
+        setLibrarySections((current) => updateBrowseSections(current, key, value));
+        setSearchSections((current) => updateSearchSections(current, key, value));
+        setDetailSections((current) => updateBrowseSections(current, key, value));
+        setSelectedItem((current) =>
+          current && createMusicItemKey(current) === key
+            ? { ...current, isFavorite: value }
+            : current
+        );
+        setPlayback((current) =>
+          current?.currentItem && createMusicItemKey(current.currentItem) === key
+            ? { ...current, currentItem: { ...current.currentItem, isFavorite: value } }
+            : current
+        );
+        setQueue((current) =>
+          current
+            ? {
+                ...current,
+                items: current.items.map((entry) => updateItemFavorite(entry, key, value)),
+              }
+            : current
+        );
+      };
+      setFavoriteBusyKey(key);
+      applyFavorite(favorite);
+      try {
+        await source.setFavorite(item, favorite);
+        toast.success(favorite ? t('musicHub.saved') : t('musicHub.removeSaved'));
+        setLibraryRefresh((revision) => revision + 1);
+      } catch (error) {
+        applyFavorite(!favorite);
+        toast.error(getMusicErrorMessage(error, t('musicHub.providerFailed')));
+      } finally {
+        setFavoriteBusyKey(null);
+      }
+    },
+    [sourceAdapters, t]
+  );
+
+  const loadMoreSection = useCallback(
+    async (section: MusicBrowseSection, scope: 'library' | 'detail') => {
+      const source = sourceAdapters.find((candidate) => candidate.id === section.sourceId);
+      if (!source?.browseNextPage || !section.continuation) return;
+      const key = `${scope}:${section.sourceId}:${section.id}`;
+      setPageBusyKey(key);
+      try {
+        const page = await source.browseNextPage(section);
+        if (scope === 'detail') {
+          setDetailSections((current) => mergeBrowseSectionPage(current, page));
+        } else {
+          setLibrarySections((current) => mergeBrowseSectionPage(current, page));
+        }
+      } catch (error) {
+        toast.error(getMusicErrorMessage(error, t('musicHub.providerFailed')));
+      } finally {
+        setPageBusyKey((current) => (current === key ? null : current));
+      }
+    },
+    [sourceAdapters, t]
   );
 
   const handleSearch = (event: FormEvent) => {
     event.preventDefault();
     const next = query.trim();
-    if (next) setSubmittedQuery(next);
+    setSelectedItem(null);
+    setSubmittedQuery(next);
   };
 
   const handleAccountAction = async (source: MusicSourceAdapter, connect: boolean) => {
     setAccountBusy(source.id);
     try {
       await (connect ? source.connect() : source.disconnect());
+      if (!connect) {
+        setPlayback((current) => (current?.sourceId === source.id ? null : current));
+        setQueue((current) => (current?.sourceId === source.id ? null : current));
+        setPendingItem((current) => (current?.sourceId === source.id ? null : current));
+        setSelectedItem((current) => (current?.sourceId === source.id ? null : current));
+      }
       await refreshStatuses();
     } catch (error) {
       toast.error(getMusicErrorMessage(error, t('musicHub.providerFailed')));
@@ -556,36 +711,53 @@ export function MusicSection({
     }
   };
 
-  const visibleSections = submittedQuery ? sections : librarySections;
-  const currentItem = playback?.sourceId === selectedSourceId ? playback.currentItem : null;
-  const selectedTarget = targets.find((target) => target.id === selectedTargetId) ?? null;
+  const selectedTarget =
+    targets.find((target) => createMusicTargetKey(target) === selectedTargetKey) ?? null;
   const playbackTarget =
-    targets.find((target) => target.id === playback?.targetId) ?? selectedTarget;
-  const playbackDuration = playback?.durationMs ?? currentItem?.durationMs ?? 0;
-  const playbackPosition = Math.min(
-    playbackDuration || Number.POSITIVE_INFINITY,
-    seekDraft ?? playback?.positionMs ?? 0
-  );
-  const playbackVolume = volumeDraft ?? playback?.volume ?? 0.5;
-  const repeatMode = playback?.repeat ?? 'off';
+    targets.find(
+      (target) =>
+        target.id === playback?.targetId &&
+        (!playback.targetAdapterId || target.adapterId === playback.targetAdapterId)
+    ) ?? selectedTarget;
+  const currentItem = playback?.sourceId === selectedSourceId ? playback.currentItem : null;
+  const hasNowPlaying = currentItem !== null;
   const selectedTargetAdapter = selectedTarget ? findTargetAdapter(selectedTarget) : null;
-  const groupingAvailable = Boolean(selectedTargetAdapter?.group && selectedTargetAdapter.ungroup);
+  const groupCoordinator =
+    targets.find(
+      (target) =>
+        target.adapterId === selectedTarget?.adapterId &&
+        target.id === selectedTarget?.groupCoordinatorId
+    ) ?? selectedTarget;
+  const groupCoordinatorAdapter = groupCoordinator ? findTargetAdapter(groupCoordinator) : null;
+  const groupingAvailable = Boolean(
+    groupCoordinator?.capabilities?.grouping !== false &&
+      groupCoordinatorAdapter?.group &&
+      groupCoordinatorAdapter.ungroup
+  );
+  const canEnqueue = useCallback(
+    (item: MusicItem, position: MusicQueuePosition) =>
+      Boolean(
+        item.sourceId === selectedSourceId &&
+          sourceAdapters.find((source) => source.id === item.sourceId)?.capabilities.queue &&
+          selectedTarget?.available &&
+          selectedTargetAdapter?.enqueue &&
+          selectedTarget.capabilities?.enqueue !== false &&
+          supportsQueuePosition(selectedTarget, position) &&
+          selectedTargetAdapter.canEnqueue?.(selectedTarget.id, item, position) !== false
+      ),
+    [selectedSourceId, selectedTarget, selectedTargetAdapter, sourceAdapters]
+  );
 
-  const openGrouping = () => {
-    if (!selectedTarget) return;
-    setGroupMemberIds(
-      (selectedTarget.groupMemberIds ?? []).filter((targetId) => targetId !== selectedTarget.id)
-    );
-    setGroupingOpen((open) => !open);
-  };
-
-  const applyGrouping = async () => {
-    if (!selectedTarget || !selectedTargetAdapter?.group) return;
+  const toggleGroupTarget = async (target: MusicPlaybackTarget) => {
+    if (!groupCoordinator || !groupCoordinatorAdapter?.group || !groupCoordinatorAdapter.ungroup) {
+      return;
+    }
+    const attached = groupCoordinator.groupMemberIds?.includes(target.id) ?? false;
     setGroupBusy(true);
     try {
-      await selectedTargetAdapter.group(selectedTarget.id, groupMemberIds);
+      if (attached) await groupCoordinatorAdapter.ungroup(target.id);
+      else await groupCoordinatorAdapter.group(groupCoordinator.id, [target.id]);
       await loadTargets(selectedSourceId);
-      setGroupingOpen(false);
       toast.success(t('musicHub.groupUpdated'));
     } catch (error) {
       toast.error(getMusicErrorMessage(error, t('musicHub.groupFailed')));
@@ -598,13 +770,13 @@ export function MusicSection({
     const adapter = findTargetAdapter(target);
     if (!adapter?.ungroup) return;
     const memberIds = target.groupMemberIds ?? [];
-    const targetsToUngroup =
+    const targetIds =
       target.groupCoordinatorId === target.id
         ? memberIds.filter((targetId) => targetId !== target.id)
         : [target.id];
     setGroupBusy(true);
     try {
-      for (const targetId of targetsToUngroup) await adapter.ungroup(targetId);
+      for (const targetId of targetIds) await adapter.ungroup(targetId);
       await loadTargets(selectedSourceId);
       toast.success(t('musicHub.speakersUngrouped'));
     } catch (error) {
@@ -613,544 +785,213 @@ export function MusicSection({
       setGroupBusy(false);
     }
   };
+
   const queueEntries = useMemo(() => collapseQueueEntries(queue), [queue]);
-  const connectedServiceNames = sourceAdapters.flatMap((source) =>
-    statuses[source.id]?.state === 'connected' ? [source.name] : []
+  const connectedServiceCount = connectedSources.length;
+  const outputPanel = (
+    <MusicOutputPanel
+      targets={targets}
+      selectedTargetKey={selectedTargetKey}
+      groupCoordinator={groupCoordinator}
+      groupingAvailable={groupingAvailable}
+      groupingOpen={groupingOpen}
+      groupBusy={groupBusy}
+      error={targetError}
+      queueEntries={queueEntries}
+      hasConnectedServices={connectedServiceCount > 0}
+      onSelectTarget={setSelectedTargetKey}
+      onToggleGrouping={() => setGroupingOpen((open) => !open)}
+      onToggleGroupTarget={(target) => void toggleGroupTarget(target)}
+      onUngroupTarget={(target) => void ungroupTarget(target)}
+    />
   );
 
   return (
-    <div className="mx-auto w-full max-w-[1500px] space-y-6 pb-28">
-      <section
-        className={`relative overflow-hidden rounded-[2rem] border p-5 md:p-8 ${surface.panel} ${surface.border} ${surface.cardShadow}`}
-      >
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-y-0 right-0 w-2/3 opacity-25"
-          style={{
-            background: `radial-gradient(circle at 75% 20%, ${accentColor}, transparent 58%)`,
-          }}
-        />
-        <div className="relative grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.75fr)] lg:items-end">
-          <div>
-            <p
-              className={`mb-3 text-xs font-semibold uppercase tracking-[0.24em] ${surface.textMuted}`}
-            >
-              {t('musicHub.eyebrow')}
-            </p>
-            <h1
-              className={`max-w-3xl text-3xl font-semibold tracking-[-0.04em] md:text-5xl ${surface.textPrimary}`}
-            >
-              {t('musicHub.title')}
-            </h1>
-            <p className={`mt-3 max-w-2xl text-sm leading-6 md:text-base ${surface.textSecondary}`}>
-              {t('musicHub.description')}
-            </p>
-          </div>
-          <form onSubmit={handleSearch} className="flex gap-2">
-            <label
-              className={`flex h-12 min-w-0 flex-1 items-center gap-3 rounded-full border px-4 ${surface.inputBg} ${surface.border}`}
-            >
-              <Search className={`h-4 w-4 shrink-0 ${surface.textMuted}`} aria-hidden="true" />
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={t('musicHub.searchPlaceholder')}
-                className={`min-w-0 flex-1 bg-transparent text-sm outline-none ${surface.textPrimary} ${surface.placeholder}`}
-              />
-            </label>
-            <Button type="submit" disabled={!query.trim()}>
-              {t('musicHub.searchAction')}
-            </Button>
-          </form>
+    <div
+      className={`w-full space-y-4 md:space-y-5 ${
+        hasNowPlaying ? 'pb-[calc(11rem+env(safe-area-inset-bottom,0px))] md:pb-32' : 'pb-4 md:pb-5'
+      }`}
+    >
+      <header className="px-1">
+        <div className="flex items-center justify-between gap-3">
+          <h1
+            className={`text-2xl font-semibold tracking-[-0.025em] md:text-3xl ${surface.textPrimary}`}
+          >
+            {t('sidebar.music')}
+          </h1>
+          <Button
+            size="small"
+            variant="secondary"
+            className="shrink-0"
+            aria-expanded={servicesOpen}
+            onClick={() => setServicesOpen(true)}
+          >
+            {connectedServiceCount ? t('musicHub.manageServices') : t('musicHub.setupServices')}
+          </Button>
         </div>
-      </section>
+        <p className={`mt-1 max-w-2xl text-sm leading-5 ${surface.textSecondary}`}>
+          {t('musicHub.description')}
+        </p>
+      </header>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <main className="space-y-6">
-          <section
-            className={`rounded-[2rem] border p-4 md:p-5 ${surface.panel} ${surface.border}`}
-          >
-            <div
-              className={`flex items-center justify-between gap-3 ${servicesOpen ? 'mb-4' : ''}`}
-            >
-              <div className="min-w-0">
-                <h2 className={`text-base font-semibold ${surface.textPrimary}`}>
-                  {t('musicHub.accounts')}
-                </h2>
-                <p className={`mt-1 truncate text-xs ${surface.textMuted}`}>
-                  {connectedServiceNames.length
-                    ? `${connectedServiceNames.join(', ')} · ${t('musicHub.connected')}`
-                    : t('musicHub.noServicesConnected')}
-                </p>
-              </div>
-              <Button
-                size="small"
-                variant="ghost"
-                aria-expanded={servicesOpen}
-                aria-controls="music-services-management"
-                onClick={() => {
-                  setServicesOpen((open) => !open);
-                  if (servicesOpen) setSpotifySetupOpen(false);
-                }}
-              >
-                {servicesOpen
-                  ? t('common.done')
-                  : connectedServiceNames.length
-                    ? t('musicHub.manageServices')
-                    : t('musicHub.setupServices')}
-              </Button>
-            </div>
-            {servicesOpen ? (
-              <div id="music-services-management">
-                <div className="grid gap-3 md:grid-cols-2">
-                  {sourceAdapters.map((source) => (
-                    <AccountCard
-                      key={source.id}
-                      source={source}
-                      status={statuses[source.id]}
-                      busy={accountBusy === source.id}
-                      onConnect={() => void handleAccountAction(source, true)}
-                      onDisconnect={() => void handleAccountAction(source, false)}
-                      onConfigure={() => setSpotifySetupOpen(true)}
-                    />
-                  ))}
-                </div>
-                {spotifySetupOpen ? (
-                  <div className="mt-4">
-                    <MusicSetupPanel
-                      onClose={() => setSpotifySetupOpen(false)}
-                      onSaved={async () => {
-                        await refreshStatuses();
-                        setServicesOpen(false);
-                      }}
-                    />
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-          </section>
+      <form onSubmit={handleSearch} className="flex gap-2">
+        <label htmlFor="music-search" className="sr-only">
+          {t('musicHub.searchPlaceholder')}
+        </label>
+        <div
+          className={`flex h-12 min-w-0 flex-1 items-center gap-3 rounded-full border px-4 ${surface.inputBg} ${surface.border}`}
+        >
+          <Search className={`h-4 w-4 shrink-0 ${surface.textMuted}`} aria-hidden="true" />
+          <input
+            id="music-search"
+            name="music-search"
+            type="search"
+            autoComplete="off"
+            spellCheck={false}
+            value={query}
+            onChange={(event) => {
+              const next = event.target.value;
+              setQuery(next);
+              if (!next.trim()) setSubmittedQuery('');
+            }}
+            placeholder={t('musicHub.searchPlaceholder')}
+            className={`min-w-0 flex-1 rounded-sm bg-transparent text-sm ${surface.textPrimary} ${surface.placeholder} ${getThemeFocusRingClassName(theme)}`}
+          />
+        </div>
+        <Button type="submit" disabled={!query.trim()}>
+          {t('musicHub.searchAction')}
+        </Button>
+      </form>
 
-          <section
-            className={`rounded-[2rem] border p-4 md:p-5 ${surface.panel} ${surface.border}`}
-          >
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className={`text-base font-semibold ${surface.textPrimary}`}>
-                {submittedQuery || t('musicHub.browse')}
-              </h2>
-              {searching ? (
-                <Loader2 className={`h-4 w-4 animate-spin ${surface.textMuted}`} />
-              ) : null}
-            </div>
-            {!submittedQuery && libraryError ? (
-              <div
-                className={`rounded-2xl border p-4 text-sm leading-6 ${surface.border} ${surface.textSecondary}`}
-              >
-                {libraryError}
-              </div>
-            ) : searching ? (
-              <p className={`py-10 text-center text-sm ${surface.textMuted}`}>
-                {t('musicHub.searching')}
-              </p>
-            ) : visibleSections.length === 0 ? (
-              <div
-                className={`flex flex-col items-center gap-3 py-12 text-center ${surface.textMuted}`}
-              >
-                <Search className="h-7 w-7" aria-hidden="true" />
-                <p className="max-w-md text-sm">
-                  {submittedQuery ? t('musicHub.noResults') : t('musicHub.emptySearch')}
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-6">
-                {visibleSections.map((section) => (
-                  <div key={`${section.sourceId}:${section.title}`}>
-                    <div className="mb-2 flex items-center gap-2">
-                      <span
-                        className="h-2 w-2 rounded-full"
-                        style={{ backgroundColor: SOURCE_COLORS[section.sourceId] }}
-                      />
-                      <h3
-                        className={`text-xs font-semibold uppercase tracking-[0.16em] ${surface.textMuted}`}
-                      >
-                        {section.title}
-                      </h3>
-                    </div>
-                    <div className="space-y-1">
-                      {section.items.map((item, index) => (
-                        <ResultRow
-                          key={`${item.sourceId}:${item.type}:${item.id}:${index}`}
-                          item={item}
-                          busy={playingKey === `${item.sourceId}:${item.id}`}
-                          onPlay={() => requestPlay(item)}
-                          onEnqueue={() => void enqueueItem(item)}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-        </main>
+      <button
+        type="button"
+        onClick={() => setListeningOpen(true)}
+        className={`flex min-h-14 w-full items-center gap-3 rounded-2xl border px-4 text-left xl:hidden ${surface.panelMuted} ${surface.border} ${surface.hoverBg} ${getThemeFocusRingClassName(theme)}`}
+      >
+        <span
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${surface.iconBg}`}
+        >
+          <Speaker className="h-4 w-4" aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className={`block text-xs font-semibold ${surface.textPrimary}`}>
+            {t('musicHub.outputs')}
+          </span>
+          <span className={`block truncate text-xs ${surface.textMuted}`}>
+            {selectedTarget?.name || t('musicHub.outputRequired')}
+          </span>
+        </span>
+        {groupingAvailable ? (
+          <span className={`text-xs font-medium ${surface.textSecondary}`}>
+            {t('musicHub.groupSpeakers')}
+          </span>
+        ) : null}
+      </button>
 
-        <aside className="space-y-6 xl:sticky xl:top-6 xl:self-start">
-          <section className={`rounded-[2rem] border p-5 ${surface.panel} ${surface.border}`}>
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <Speaker className={`h-4 w-4 ${surface.textMuted}`} aria-hidden="true" />
-                <h2 className={`text-sm font-semibold ${surface.textPrimary}`}>
-                  {t('musicHub.outputs')}
-                </h2>
-              </div>
-              {groupingAvailable ? (
-                <Button size="small" variant="ghost" onClick={openGrouping}>
-                  <Users className="h-4 w-4" aria-hidden="true" />
-                  {groupingOpen ? t('common.cancel') : t('musicHub.groupSpeakers')}
-                </Button>
-              ) : null}
-            </div>
-            {groupingOpen && selectedTarget ? (
-              <div className={`mb-4 rounded-2xl border p-3 ${surface.border} ${surface.subtleBg}`}>
-                <p className={`text-xs font-semibold ${surface.textPrimary}`}>
-                  {t('musicHub.groupWith')} {selectedTarget.name}
-                </p>
-                <p className={`mt-1 text-[11px] leading-5 ${surface.textMuted}`}>
-                  {t('musicHub.groupDescription')}
-                </p>
-                <div className="mt-3 space-y-1">
-                  {targets
-                    .filter(
-                      (target) =>
-                        target.adapterId === selectedTarget.adapterId &&
-                        target.id !== selectedTarget.id
-                    )
-                    .map((target) => {
-                      const checked = groupMemberIds.includes(target.id);
-                      const checkboxId = `music-group-target-${target.id}`;
-                      return (
-                        <label
-                          key={target.id}
-                          htmlFor={checkboxId}
-                          className={`flex min-h-11 cursor-pointer items-center gap-3 rounded-xl px-2 ${surface.hoverBg}`}
-                        >
-                          <Checkbox
-                            id={checkboxId}
-                            checked={checked}
-                            disabled={groupBusy}
-                            onCheckedChange={(nextChecked) =>
-                              setGroupMemberIds((current) =>
-                                nextChecked
-                                  ? [...current, target.id]
-                                  : current.filter((targetId) => targetId !== target.id)
-                              )
-                            }
-                          />
-                          <span className={`min-w-0 truncate text-sm ${surface.textPrimary}`}>
-                            {target.name}
-                          </span>
-                        </label>
-                      );
-                    })}
-                </div>
-                <Button
-                  className="mt-3 w-full"
-                  size="small"
-                  disabled={groupBusy || groupMemberIds.length === 0}
-                  onClick={() => void applyGrouping()}
-                >
-                  {groupBusy ? t('musicHub.updatingGroup') : t('musicHub.createGroup')}
-                </Button>
-              </div>
-            ) : null}
-            <div className="space-y-2">
-              {targets.length ? (
-                targets.map((target) => (
-                  <div
-                    key={`${target.adapterId}:${target.id}`}
-                    className={`flex w-full items-center rounded-2xl border transition ${target.id === selectedTargetId ? surface.borderStrong : surface.border} ${target.id === selectedTargetId ? surface.subtleBg : surface.hoverBg}`}
-                  >
-                    <button
-                      type="button"
-                      disabled={!target.available}
-                      onClick={() => setSelectedTargetId(target.id)}
-                      className="flex min-w-0 flex-1 items-center gap-3 px-3 py-3 text-left disabled:opacity-45"
-                    >
-                      <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-current/5">
-                        <Speaker className="h-4 w-4" aria-hidden="true" />
-                        {target.isActive ? (
-                          <span className="absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-current" />
-                        ) : null}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span
-                          className={`block truncate text-sm font-medium ${surface.textPrimary}`}
-                        >
-                          {target.name}
-                        </span>
-                        <span className={`block truncate text-xs ${surface.textMuted}`}>
-                          {target.detail ||
-                            (target.room && target.room !== target.name ? target.room : null) ||
-                            (target.kind === 'browser'
-                              ? t('musicHub.appleBrowserOnly')
-                              : t('musicHub.navetSpeaker'))}
-                        </span>
-                        {(target.groupMemberIds?.length ?? 0) > 1 ? (
-                          <span className="mt-1 flex items-center gap-1 text-[11px] text-emerald-500">
-                            <Users className="h-3 w-3" aria-hidden="true" />
-                            {target.groupCoordinatorId === target.id
-                              ? t('musicHub.groupLeader')
-                              : t('musicHub.grouped')}
-                          </span>
-                        ) : null}
-                      </span>
-                    </button>
-                    {(target.groupMemberIds?.length ?? 0) > 1 ? (
-                      <Button
-                        iconOnly
-                        label={t('musicHub.ungroup')}
-                        variant="ghost"
-                        size="small"
-                        disabled={groupBusy}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void ungroupTarget(target);
-                        }}
-                      >
-                        <Unlink className="h-4 w-4" />
-                      </Button>
-                    ) : null}
-                  </div>
-                ))
-              ) : (
-                <div
-                  className={`flex items-center gap-3 rounded-2xl border p-3 ${surface.border} ${surface.textMuted}`}
-                >
-                  <Unplug className="h-4 w-4" />
-                  <p className="text-xs">{t('musicHub.outputRequired')}</p>
-                </div>
-              )}
-            </div>
-          </section>
-
-          <section className={`rounded-[2rem] border p-5 ${surface.panel} ${surface.border}`}>
-            <div className="mb-4 flex items-center gap-2">
-              <ListMusic className={`h-4 w-4 ${surface.textMuted}`} aria-hidden="true" />
-              <h2 className={`text-sm font-semibold ${surface.textPrimary}`}>
-                {t('musicHub.queue')}
-              </h2>
-            </div>
-            {queueEntries.length ? (
-              <ol className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
-                {queueEntries.map(({ item, count, startIndex, isCurrent }) => (
-                  <li
-                    key={`${item.sourceId}:${item.id}:${startIndex}`}
-                    className={`flex items-center gap-3 rounded-xl p-2 ${isCurrent ? surface.subtleBg : ''}`}
-                  >
-                    <span className={`w-5 text-center text-xs tabular-nums ${surface.textMuted}`}>
-                      {startIndex + 1}
-                    </span>
-                    <MusicArtwork item={item} className="h-9 w-9 shrink-0 rounded-lg" />
-                    <span className="min-w-0 flex-1">
-                      <span
-                        className={`flex items-center gap-2 text-xs font-medium ${surface.textPrimary}`}
-                      >
-                        <span className="truncate">{item.title}</span>
-                        {count > 1 ? (
-                          <span className={`shrink-0 tabular-nums ${surface.textMuted}`}>
-                            ×{count}
-                          </span>
-                        ) : null}
-                      </span>
-                      <span className={`block truncate text-[11px] ${surface.textMuted}`}>
-                        {item.artists.join(', ')}
-                      </span>
-                    </span>
-                  </li>
-                ))}
-              </ol>
-            ) : (
-              <p className={`py-7 text-center text-xs ${surface.textMuted}`}>
-                {t('musicHub.queueEmpty')}
-              </p>
-            )}
-          </section>
+      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <MusicLibraryBrowser
+          sources={connectedSources}
+          librarySections={librarySections}
+          searchSections={searchSections}
+          submittedQuery={submittedQuery}
+          loading={statusesLoading || (submittedQuery ? searching : libraryLoading)}
+          error={submittedQuery ? searchError : libraryError}
+          sourceFilter={sourceFilter}
+          selectedItem={selectedItem}
+          detailSections={detailSections}
+          detailLoading={detailLoading}
+          detailError={detailError}
+          playingKey={playingKey}
+          favoriteBusyKey={favoriteBusyKey}
+          pageBusyKey={pageBusyKey}
+          canEnqueue={canEnqueue}
+          canAddToPlaylist={canAddToPlaylist}
+          onFilterChange={(sourceId) => {
+            setSourceFilter(sourceId);
+            setSelectedItem(null);
+          }}
+          onOpenItem={(item) => {
+            if (selectedItem && createMusicItemKey(selectedItem) === createMusicItemKey(item)) {
+              setDetailRefresh((revision) => revision + 1);
+            } else {
+              setSelectedItem(item);
+            }
+          }}
+          onCloseItem={() => setSelectedItem(null)}
+          onPlay={requestPlay}
+          onEnqueue={(item, position) => void enqueueItem(item, position)}
+          onAddToPlaylist={setPlaylistItem}
+          onToggleFavorite={(item) => void toggleFavorite(item)}
+          onLoadMore={(section, scope) => void loadMoreSection(section, scope)}
+          onRetry={() =>
+            submittedQuery
+              ? setSearchRefresh((revision) => revision + 1)
+              : setLibraryRefresh((revision) => revision + 1)
+          }
+        />
+        <aside className="hidden min-w-0 xl:sticky xl:top-5 xl:block xl:self-start">
+          <div className="space-y-4">{outputPanel}</div>
         </aside>
       </div>
 
-      <div
-        className={`fixed right-3 bottom-3 left-3 z-30 mx-auto max-w-5xl rounded-[1.75rem] border p-3 md:right-6 md:bottom-6 md:left-[calc(var(--sidebar-width,0px)+1.5rem)] ${surface.shellPanel} ${surface.cardShadow}`}
-      >
-        <div className="flex items-center gap-3">
-          {currentItem ? (
-            <MusicArtwork item={currentItem} className="h-12 w-12 shrink-0 rounded-2xl" />
-          ) : (
-            <div
-              className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${surface.iconBg}`}
-            >
-              <Music2 className="h-5 w-5" />
-            </div>
-          )}
-          <div className="min-w-0 flex-1">
-            <p
-              className={`text-[10px] font-semibold uppercase tracking-[0.16em] ${surface.textMuted}`}
-            >
-              {t('musicHub.nowPlaying')}
-            </p>
-            <p className={`truncate text-sm font-semibold ${surface.textPrimary}`}>
-              {currentItem?.title || t('musicHub.noPlayback')}
-            </p>
-            {currentItem ? (
-              <div className="flex min-w-0 items-center gap-2">
-                <p className={`min-w-0 truncate text-xs ${surface.textMuted}`}>
-                  {currentItem.artists.join(', ')}
-                </p>
-                {playbackTarget ? (
-                  <span
-                    className={`flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium ${surface.subtleBg} ${surface.textSecondary}`}
-                    title={`${t('musicHub.playingOn')} ${playbackTarget.name}`}
-                  >
-                    <Speaker className="h-3 w-3" aria-hidden="true" />
-                    <span className="hidden sm:inline">{t('musicHub.playingOn')}</span>
-                    <span className="max-w-28 truncate">{playbackTarget.name}</span>
-                  </span>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-          <div className="flex items-center gap-0.5 sm:gap-1">
-            <Button
-              iconOnly
-              label={playback?.shuffle ? t('media.shuffle') : t('media.linearPlayback')}
-              variant="ghost"
-              size="small"
-              disabled={!currentItem}
-              aria-pressed={Boolean(playback?.shuffle)}
-              style={playback?.shuffle ? { color: accentColor } : undefined}
-              onClick={() =>
-                void executeTransport({ type: 'set_shuffle', enabled: !playback?.shuffle })
-              }
-            >
-              <Shuffle className="h-4 w-4" />
-            </Button>
-            <Button
-              iconOnly
-              label={t('media.previousTrack')}
-              variant="ghost"
-              size="small"
-              disabled={!currentItem}
-              onClick={() => void executeTransport({ type: 'previous' })}
-            >
-              <SkipBack className="h-4 w-4 fill-current" />
-            </Button>
-            <Button
-              iconOnly
-              label={playback?.state === 'playing' ? 'Pause' : 'Play'}
-              size="small"
-              disabled={!currentItem}
-              onClick={() =>
-                void executeTransport({ type: playback?.state === 'playing' ? 'pause' : 'play' })
-              }
-            >
-              {playback?.state === 'playing' ? (
-                <Pause className="h-4 w-4 fill-current" />
-              ) : (
-                <Play className="h-4 w-4 fill-current" />
-              )}
-            </Button>
-            <Button
-              iconOnly
-              label={t('media.nextTrack')}
-              variant="ghost"
-              size="small"
-              disabled={!currentItem}
-              onClick={() => void executeTransport({ type: 'next' })}
-            >
-              <SkipForward className="h-4 w-4 fill-current" />
-            </Button>
-            <Button
-              iconOnly
-              label={
-                repeatMode === 'one'
-                  ? t('media.repeatOne')
-                  : repeatMode === 'all'
-                    ? t('media.repeatAll')
-                    : t('media.repeatOff')
-              }
-              variant="ghost"
-              size="small"
-              disabled={!currentItem}
-              aria-pressed={repeatMode !== 'off'}
-              style={repeatMode !== 'off' ? { color: accentColor } : undefined}
-              onClick={() =>
-                void executeTransport({
-                  type: 'set_repeat',
-                  mode: repeatMode === 'off' ? 'all' : repeatMode === 'all' ? 'one' : 'off',
-                })
-              }
-            >
-              {repeatMode === 'one' ? (
-                <Repeat1 className="h-4 w-4" />
-              ) : (
-                <Repeat className="h-4 w-4" />
-              )}
-            </Button>
-          </div>
-        </div>
-        <div className="mt-2 flex items-center gap-3">
-          <span className={`w-9 text-right text-[10px] tabular-nums ${surface.textMuted}`}>
-            {formatDuration(playbackPosition)}
-          </span>
-          <Slider
-            value={playbackPosition}
-            max={Math.max(1, playbackDuration)}
-            step={1000}
-            ariaLabel={t('media.seek')}
-            disabled={!currentItem || playbackDuration <= 0}
-            onValueChange={setSeekDraft}
-            onValueCommit={(positionMs) => {
-              void executeTransport({ type: 'seek', positionMs }).finally(() => setSeekDraft(null));
-            }}
-            rootClassName="relative flex h-7 min-w-0 flex-1 items-center touch-none select-none"
-            trackClassName="relative h-1 grow rounded-full bg-current/15"
-            rangeClassName="absolute h-full rounded-full"
-            thumbClassName="block h-3.5 w-3.5 rounded-full outline-none ring-offset-2 focus-visible:ring-2"
-            touchThumbClassName="block h-5 w-5 rounded-full outline-none ring-offset-2 focus-visible:ring-2"
-            rangeStyle={{ backgroundColor: accentColor }}
-            thumbStyle={{ backgroundColor: accentColor }}
-          />
-          <span className={`w-9 text-[10px] tabular-nums ${surface.textMuted}`}>
-            {formatDuration(playbackDuration)}
-          </span>
-          <div className="flex w-24 items-center gap-2 sm:w-28 md:w-36">
-            <Volume2 className={`h-4 w-4 shrink-0 ${surface.textMuted}`} aria-hidden="true" />
-            <Slider
-              value={playbackVolume}
-              max={1}
-              step={0.01}
-              ariaLabel={t('media.volume')}
-              disabled={!currentItem}
-              onValueChange={setVolumeDraft}
-              onValueCommit={(volume) => {
-                void executeTransport({ type: 'set_volume', volume }).finally(() =>
-                  setVolumeDraft(null)
-                );
-              }}
-              rootClassName="relative flex h-7 w-full items-center touch-none select-none"
-              trackClassName="relative h-1 grow rounded-full bg-current/15"
-              rangeClassName="absolute h-full rounded-full"
-              thumbClassName="block h-3.5 w-3.5 rounded-full outline-none ring-offset-2 focus-visible:ring-2"
-              touchThumbClassName="block h-5 w-5 rounded-full outline-none ring-offset-2 focus-visible:ring-2"
-              rangeStyle={{ backgroundColor: accentColor }}
-              thumbStyle={{ backgroundColor: accentColor }}
-            />
-          </div>
-          <span
-            className={`hidden w-7 text-right text-[10px] tabular-nums sm:block ${surface.textMuted}`}
-          >
-            {Math.round(playbackVolume * 100)}
-          </span>
-        </div>
+      <div className="mx-auto max-w-2xl space-y-4">
+        <SoundCloudPlayerSurface />
+        <YouTubePlayerSurface />
       </div>
+
+      <MusicServiceSheet
+        open={servicesOpen}
+        sources={sourceAdapters}
+        statuses={statuses}
+        loading={statusesLoading}
+        busySourceId={accountBusy}
+        onOpenChange={setServicesOpen}
+        onAccountAction={(source, connect) => void handleAccountAction(source, connect)}
+        onConfigurationChanged={refreshStatuses}
+      />
+
+      <MusicPlaylistSheet
+        open={playlistItem !== null && playlistSource !== null}
+        item={playlistItem}
+        source={playlistSource}
+        onOpenChange={(open) => {
+          if (!open) setPlaylistItem(null);
+        }}
+        onAdded={() => {
+          setLibraryRefresh((revision) => revision + 1);
+          setDetailRefresh((revision) => revision + 1);
+        }}
+      />
+
+      <SheetSurface
+        isOpen={listeningOpen}
+        onOpenChange={setListeningOpen}
+        title={t('musicHub.listening')}
+        description={selectedTarget?.name || t('musicHub.outputRequired')}
+        mobileOnly={false}
+        contentClassName="sm:max-w-xl"
+        bodyClassName="min-h-0 overflow-y-auto px-4 pb-5 sm:px-5"
+      >
+        <SheetSurfaceHeader
+          title={t('musicHub.listening')}
+          description={selectedTarget?.name || t('musicHub.outputRequired')}
+          closeLabel={t('common.close')}
+          onClose={() => setListeningOpen(false)}
+          className="px-4 pt-3 pb-4 sm:px-5"
+          titleAccessory={<Headphones className="h-4 w-4" aria-hidden="true" />}
+        />
+        {outputPanel}
+      </SheetSurface>
+
+      {hasNowPlaying ? (
+        <MusicNowPlayingBar
+          playback={playback}
+          currentItem={currentItem}
+          playbackTarget={playbackTarget}
+          onExecute={executeTransport}
+          onOpenListening={() => setListeningOpen(true)}
+        />
+      ) : null}
 
       <AlertDialog
         open={pendingItem !== null}

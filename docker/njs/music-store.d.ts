@@ -1,4 +1,5 @@
 interface NavetMusicStore {
+  engineRequestAllowed(request: unknown): string;
   getSpotifyAuthorizeLocation(
     request: unknown,
     config: { redirectUri: string; ingressPath: string },

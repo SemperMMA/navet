@@ -731,13 +731,21 @@ function seedHomeAssistantAddonOptions(imageTag, volumeName) {
     homey_client_secret: '',
     homey_redirect_uri: '',
     allow_insecure_provider_tls: false,
+    spotify_client_id: '',
+    spotify_redirect_uri: '',
+    soundcloud_client_id: '',
+    soundcloud_client_secret: '',
+    soundcloud_redirect_uri: '',
+    youtube_client_id: '',
+    youtube_client_secret: '',
+    youtube_redirect_uri: '',
   });
   const bashioShim = `bashio::config() {
   case "$1" in
     allow_insecure_provider_tls)
       printf '%s\\n' 'false'
       ;;
-    dashboard_config_url|homey_client_id|homey_client_secret|homey_redirect_uri)
+    dashboard_config_url|homey_client_id|homey_client_secret|homey_redirect_uri|spotify_client_id|spotify_redirect_uri|soundcloud_client_id|soundcloud_client_secret|soundcloud_redirect_uri|youtube_client_id|youtube_client_secret|youtube_redirect_uri)
       printf '%s\\n' ''
       ;;
     *)
@@ -1696,9 +1704,11 @@ try {
     'NAVET_HASS_URL=http://homeassistant.local:8123',
     '--tmpfs',
     '/data',
+    '--entrypoint',
+    '/bin/sh',
     imageTag,
-    'nginx',
-    '-t',
+    '-c',
+    '/docker-entrypoint.d/30-navet-config.sh && nginx -t',
   ]);
   assertConfiguredInstallationKeyIsNotLogged(imageTag);
   const addonTarget = resolveHomeAssistantAddonTarget();

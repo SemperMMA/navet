@@ -40,11 +40,22 @@ For update behavior, channel details, and advanced troubleshooting, see the
 
 ## Configuration
 
-Spotify application settings can be entered from the guided setup in Navet's **Music** section and
-are stored in the add-on's persistent `/data` directory. Apple Music uses MusicKit authentication
-and does not require a token in the add-on configuration.
+People connect their own Spotify, Apple Music, SoundCloud, and YouTube accounts from Navet's
+**Music** section. Provider application settings belong to the Navet installation; account tokens
+remain in browser-scoped server sessions under the add-on's persistent `/data` directory. Apple
+Music uses MusicKit authentication. Configure provider application credentials from **Music ->
+Manage services -> Set up services**; Navet stores them server-side in `/data` and never returns
+secrets to the browser. The options below remain available for managed deployments.
 
 - `dashboard_config_url`: optional Navet dashboard config import URL for first launch
 - `spotify_client_id`: optional Spotify application client ID for the native Music section
 - `spotify_redirect_uri`: optional advanced HTTPS callback override; by default, register
   `https://navet.app/redirect/oauth` in Spotify
+- `soundcloud_client_id`: SoundCloud application client ID for direct account connection
+- `soundcloud_client_secret`: SoundCloud application client secret
+- `soundcloud_redirect_uri`: optional callback override; by default, register
+  `https://navet.app/redirect/oauth` in SoundCloud
+- `youtube_client_id`: Google OAuth web application client ID with YouTube Data API v3 enabled
+- `youtube_client_secret`: Google OAuth web application client secret
+- `youtube_redirect_uri`: optional callback override; by default, register
+  `https://navet.app/redirect/oauth` in Google Cloud

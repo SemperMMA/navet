@@ -125,17 +125,21 @@ Optional multi-provider add-on settings:
 
 The add-on can enable Navet's native Music section independently of the Home Assistant provider:
 
-- open Navet's **Music** section; use **Set up** for Spotify or **Authenticate** to authorize Apple
-  Music through MusicKit
-- register `https://navet.app/redirect/oauth`, the Spotify callback displayed by the setup guide;
-  the relay returns authorization to the local add-on without requiring HTTPS on Home Assistant
-- alternatively, use `spotify_client_id` and `spotify_redirect_uri` as deployment-managed Spotify
-  defaults
-- Apple credentials are not entered into the add-on; Navet's hosted service supplies the public
-  developer token while the Apple private key stays outside self-hosted deployments
+- open Navet's **Music** section and connect a personal Spotify, Apple Music, SoundCloud, or YouTube
+  account; Apple Music uses MusicKit while the other services use their official OAuth flows
+- register `https://navet.app/redirect/oauth` for Spotify, SoundCloud, and Google; the relay returns
+  authorization to the local add-on without requiring HTTPS on Home Assistant
+- configure installation-owned provider credentials from **Music -> Manage services -> Set up
+  services**; they stay in the add-on's persistent `/data` storage and are never returned to the
+  browser
+- alternatively, use the add-on's `spotify_*`, `soundcloud_*`, and `youtube_*` options for managed
+  credentials and optional callback overrides
+- Apple accepts only a signed MusicKit developer token in Navet's setup UI, never the Apple private
+  key; managed deployments can instead use Navet's hosted token service
 
-Spotify playback hands off to Connect devices or compatible Home Assistant media players. Apple
-Music playback stays in the current Navet browser in the first release. See [Music](MUSIC.md).
+Spotify playback hands off to Connect devices or compatible Sonos households. Apple Music,
+SoundCloud, and YouTube playback stay in the current Navet browser through each provider's official
+player. See [Music](MUSIC.md).
 
 ### Troubleshooting
 

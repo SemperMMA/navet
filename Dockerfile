@@ -30,11 +30,9 @@ COPY apps/standalone apps/standalone
 COPY packages packages
 COPY assets assets
 COPY scripts scripts
+COPY docker/njs/music-provider-policy.js docker/njs/music-provider-policy.js
+COPY docker/njs/music-provider-policy.d.ts docker/njs/music-provider-policy.d.ts
 RUN NAVET_ENABLE_DEMO=$NAVET_ENABLE_DEMO pnpm build
-
-FROM rust:1.88-alpine AS librespot-build
-RUN apk add --no-cache musl-dev perl make
-RUN cargo install librespot --version 0.8.0 --locked --no-default-features --features rustls-tls-webpki-roots,passthrough-decoder
 
 FROM node:22-alpine
 
@@ -64,6 +62,7 @@ COPY docker/njs/openhab-store.js /etc/nginx/njs/openhab-store.js
 COPY docker/njs/openhab-proxy.js /etc/nginx/njs/openhab-proxy.js
 COPY docker/njs/homey-store.js /etc/nginx/njs/homey-store.js
 COPY docker/njs/music-store.js /etc/nginx/njs/music-store.js
+COPY docker/njs/music-provider-policy.js /etc/nginx/njs/music-provider-policy.js
 COPY docker/njs/homey-proxy.js /etc/nginx/njs/homey-proxy.js
 COPY docker/njs/ha-proxy.template.js /etc/navet-nginx/ha-proxy.template.js
 COPY docker/snippets/navet-rss-proxy.conf /etc/nginx/snippets/navet-rss-proxy.conf
@@ -80,10 +79,9 @@ COPY docker/config.js.template /usr/share/nginx/html/config.js.template
 COPY docker/30-navet-config.sh /docker-entrypoint.d/30-navet-config.sh
 COPY docker/start-music-engine.sh /usr/local/bin/navet-start-music-engine
 COPY apps/music-engine/src /opt/navet/music-engine
-COPY --from=librespot-build /usr/local/cargo/bin/librespot /usr/local/bin/librespot
 COPY --from=build /app/apps/standalone/dist /usr/share/nginx/html
 
-RUN apk add --no-cache nginx nginx-mod-http-js ffmpeg su-exec gettext ca-certificates \
+RUN apk add --no-cache nginx nginx-mod-http-js su-exec gettext ca-certificates \
   && mkdir -p /data /docker-entrypoint.d /run/nginx \
   && chown -R nginx:nginx /data \
   && chmod +x /docker-entrypoint.d/30-navet-config.sh /usr/local/bin/navet-start-music-engine

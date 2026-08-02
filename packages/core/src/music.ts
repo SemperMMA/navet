@@ -1,6 +1,19 @@
-export const MUSIC_SOURCE_IDS = ['spotify', 'apple_music'] as const;
+export const MUSIC_SOURCE_IDS = ['spotify', 'apple_music', 'soundcloud', 'youtube_music'] as const;
 
-export type MusicSourceId = (typeof MUSIC_SOURCE_IDS)[number];
+export type BuiltInMusicSourceId = (typeof MUSIC_SOURCE_IDS)[number];
+
+/**
+ * Music sources are registered at runtime. Keeping this contract open allows provider packages to
+ * add sources without coupling @navet/core to a product-specific allowlist.
+ */
+export type MusicSourceId = string;
+
+export interface MusicSourcePresentation {
+  /** A small provider-identity accent. Shared surfaces must remain theme-owned. */
+  accentColor?: string;
+  /** A stable semantic icon key. Unknown keys must fall back to a generic music icon. */
+  icon?: string;
+}
 
 export type MusicItemType = 'track' | 'album' | 'artist' | 'playlist' | 'station' | 'episode';
 
@@ -15,7 +28,32 @@ export interface MusicItem {
   artworkUrl?: string | null;
   playable: boolean;
   explicit?: boolean;
+  /** Whether this item is currently saved or favorited in the connected account. */
+  isFavorite?: boolean;
   uri?: string;
+}
+
+export type MusicBrowseSectionKind =
+  | 'recent'
+  | 'favorites'
+  | 'playlists'
+  | 'albums'
+  | 'artists'
+  | 'tracks'
+  | 'recommendations'
+  | 'collection';
+
+export interface MusicBrowseSection {
+  /** Stable within a source so the UI can preserve shelf identity while refreshing. */
+  id: string;
+  sourceId: MusicSourceId;
+  kind: MusicBrowseSectionKind;
+  /** Optional provider-authored title for collections without a shared semantic label. */
+  title?: string;
+  layout: 'grid' | 'list';
+  items: MusicItem[];
+  /** Opaque, credential-free provider cursor used only to request the next page. */
+  continuation?: string;
 }
 
 export interface MusicSearchSection {
@@ -24,20 +62,63 @@ export interface MusicSearchSection {
   items: MusicItem[];
 }
 
+export interface MusicPlaylistDestination {
+  id: string;
+  sourceId: MusicSourceId;
+  title: string;
+  artworkUrl?: string | null;
+}
+
+export interface MusicPlaylistPage {
+  items: MusicPlaylistDestination[];
+  /** Opaque, credential-free provider cursor used only to request the next page. */
+  continuation?: string;
+}
+
+export interface MusicPlaylistBrowseOptions {
+  continuation?: string;
+  signal?: AbortSignal;
+}
+
 export interface MusicSourceCapabilities {
   search: boolean;
   library: boolean;
+  itemDetails: boolean;
   queue: boolean;
   favorites: boolean;
+  favoriteMutation: boolean;
+  /** Whether this source can add supported items to editable account playlists. */
+  playlistMutation?: boolean;
   browserPlayback: boolean;
   playbackHandoff: boolean;
+}
+
+export interface MusicTransportCapabilities {
+  play: boolean;
+  pause: boolean;
+  next: boolean;
+  previous: boolean;
+  seek: boolean;
+  set_volume: boolean;
+  set_shuffle: boolean;
+  set_repeat: boolean;
+}
+
+export type MusicQueuePosition = 'next' | 'later';
+
+export interface MusicPlaybackTargetCapabilities {
+  enqueue: boolean;
+  /** Explicit queue positions supported by this output. Omit for legacy add-to-end adapters. */
+  queuePositions?: MusicQueuePosition[];
+  grouping: boolean;
+  transport: MusicTransportCapabilities;
 }
 
 export type MusicAccountStatus =
   | { state: 'disconnected' }
   | { state: 'connecting' }
   | { state: 'connected'; displayName?: string; subscription?: string }
-  | { state: 'unavailable'; reason: string };
+  | { state: 'unavailable'; reason: string; canConnect?: boolean };
 
 export type MusicPlaybackState = 'idle' | 'playing' | 'paused' | 'buffering' | 'unavailable';
 
@@ -51,6 +132,8 @@ export interface MusicQueueSnapshot {
 export interface MusicPlaybackSnapshot {
   sourceId: MusicSourceId;
   targetId: string | null;
+  /** Identifies the adapter namespace for targetId when multiple adapters expose the same ID. */
+  targetAdapterId?: string;
   state: MusicPlaybackState;
   currentItem: MusicItem | null;
   positionMs: number;
@@ -76,6 +159,7 @@ export interface MusicPlaybackTarget {
   groupId?: string;
   groupCoordinatorId?: string;
   groupMemberIds?: string[];
+  capabilities?: MusicPlaybackTargetCapabilities;
 }
 
 export type MusicTransportCommand =
@@ -91,12 +175,22 @@ export type MusicTransportCommand =
 export interface MusicSourceAdapter {
   readonly id: MusicSourceId;
   readonly name: string;
+  readonly presentation?: MusicSourcePresentation;
   readonly capabilities: MusicSourceCapabilities;
   getAccountStatus(): Promise<MusicAccountStatus>;
   connect(): Promise<void>;
   disconnect(): Promise<void>;
   search(query: string, signal?: AbortSignal): Promise<MusicItem[]>;
-  browseLibrary?(signal?: AbortSignal): Promise<MusicItem[]>;
+  browseLibrary?(signal?: AbortSignal): Promise<MusicBrowseSection[]>;
+  browseItem?(item: MusicItem, signal?: AbortSignal): Promise<MusicBrowseSection[]>;
+  browseNextPage?(section: MusicBrowseSection, signal?: AbortSignal): Promise<MusicBrowseSection>;
+  /** Narrows provider-wide favorite support to the concrete item types the API accepts. */
+  canSetFavorite?(item: MusicItem): boolean;
+  setFavorite?(item: MusicItem, favorite: boolean): Promise<void>;
+  listEditablePlaylists?(options?: MusicPlaylistBrowseOptions): Promise<MusicPlaylistPage>;
+  /** Narrows playlist writes to item types the provider accepts. */
+  canAddToPlaylist?(item: MusicItem): boolean;
+  addToPlaylist?(playlist: MusicPlaylistDestination, item: MusicItem): Promise<void>;
   getPlaybackSnapshot?(): Promise<MusicPlaybackSnapshot>;
   getQueue?(): Promise<MusicQueueSnapshot>;
 }
@@ -105,7 +199,13 @@ export interface MusicPlaybackTargetAdapter {
   readonly id: string;
   listTargets(sourceId: MusicSourceId): Promise<MusicPlaybackTarget[]>;
   play(targetId: string, item: MusicItem, options?: { replaceQueue?: boolean }): Promise<void>;
-  enqueue?(targetId: string, item: MusicItem): Promise<void>;
+  /** Narrows target-wide queue support to the concrete item types the output accepts. */
+  canEnqueue?(targetId: string, item: MusicItem, position?: MusicQueuePosition): boolean;
+  enqueue?(
+    targetId: string,
+    item: MusicItem,
+    options?: { position?: MusicQueuePosition }
+  ): Promise<void>;
   execute(targetId: string, command: MusicTransportCommand): Promise<void>;
   group?(coordinatorId: string, memberIds: string[]): Promise<void>;
   ungroup?(targetId: string): Promise<void>;
@@ -173,6 +273,21 @@ export function createMusicItemKey(item: Pick<MusicItem, 'sourceId' | 'type' | '
   return `${item.sourceId}:${item.type}:${item.id}`;
 }
 
+export function createMusicTargetKey(
+  target: Pick<MusicPlaybackTarget, 'adapterId' | 'id'>
+): string {
+  return JSON.stringify([target.adapterId, target.id]);
+}
+
 export function isMusicSourceId(value: unknown): value is MusicSourceId {
-  return typeof value === 'string' && MUSIC_SOURCE_IDS.includes(value as MusicSourceId);
+  return (
+    typeof value === 'string' && value.length <= 64 && /^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/.test(value)
+  );
+}
+
+export function musicTargetSupportsCommand(
+  target: MusicPlaybackTarget | null | undefined,
+  command: MusicTransportCommand['type']
+): boolean {
+  return target?.capabilities?.transport[command] ?? true;
 }
