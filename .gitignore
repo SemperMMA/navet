@@ -87,3 +87,4 @@ biome.json.cache
 working_files
 homeassistant
 scripts/push-ha-panel.sh
+dist-addon/
