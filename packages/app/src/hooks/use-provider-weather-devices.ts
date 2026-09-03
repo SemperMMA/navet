@@ -14,6 +14,7 @@ import { createProviderScopedId } from '@navet/app/utils/provider-ids';
 import { areDataEqual } from '@navet/app/utils/structural-equality';
 import { subscribeVisibilityAwareAsyncTask } from '@navet/app/utils/visibility-aware-scheduler';
 import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { useDashboardEntitiesStore } from '@navet/app/features/dashboard/stores/dashboard-entities-store';
 import { useIntegrationStore } from './use-integration-store';
 import {
   useProviderEntityRegistryEntries,
@@ -87,13 +88,26 @@ export function useProviderWeatherDevices(
   const weatherForecastMode = useSettingsStore(settingsSelectors.weatherForecastMode);
   const use24HourTime = useSettingsStore(settingsSelectors.use24HourTime);
 
+  const hiddenEntityIds = useDashboardEntitiesStore((state) => state.hiddenEntityIds);
   const primaryWeatherEntityId = useMemo(() => {
     if (!supportsWeather || !entities) {
       return null;
     }
 
-    return Object.keys(entities).find((entityId) => entityId.startsWith('weather.')) ?? null;
-  }, [entities, supportsWeather]);
+    // Prefer a weather entity the user has not hidden on the dashboard; fall back to the
+    // first one so a fully hidden set still degrades the way upstream does.
+    const hidden = new Set(hiddenEntityIds);
+    const candidates = Object.keys(entities).filter((entityId) => entityId.startsWith('weather.'));
+    return (
+      candidates.find(
+        (entityId) =>
+          !hidden.has(entityId) &&
+          !hidden.has(createProviderScopedId(resolvedProviderId, entityId))
+      ) ??
+      candidates[0] ??
+      null
+    );
+  }, [entities, hiddenEntityIds, resolvedProviderId, supportsWeather]);
 
   const entityRegistryMap = useMemo(
     () => new Map(entityRegistry.map((entry) => [entry.entityId, entry])),
