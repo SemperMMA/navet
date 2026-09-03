@@ -416,7 +416,9 @@ function isAmbientTemperatureSensor(
     return false;
   }
 
-  const searchText = `${device.id} ${device.name} ${device.room}`.toLowerCase();
+  const searchText = `${device.id} ${device.name} ${device.room}`
+    .toLowerCase()
+    .replace(/[_\-:.]+/g, ' ');
 
   return !NON_AMBIENT_CLIMATE_SENSOR_PATTERN.test(searchText);
 }
