@@ -13,6 +13,7 @@ import { useChoreWorkspaceSync } from '@navet/app/features/chores/use-chore-work
 import { getClimateDashboardGroup } from '@navet/app/features/climate/utils/climate-dashboard-group';
 import { useRoomWorkspaceStore } from '@navet/app/features/dashboard/rooms/room-workspace-store';
 import { getRoomWorkspaceSectionsV2 } from '@navet/app/features/dashboard/rooms/room-workspace-v2';
+import type { DeviceWithType } from '@navet/app/types/device.types';
 import {
   getEnergyOverviewTemplateLayout,
   useEnergyOverviewLayout,
@@ -158,6 +159,21 @@ function DashboardSectionRouterComponent({ controller }: DashboardSectionRouterP
     sectionData,
     updateCardSize,
   } = controller;
+  // Summary bar: everything the dashboard can see minus entities the user explicitly hid
+  // (auto-hidden sensors stay eligible so sensor-backed summary pills keep working).
+  const summaryDeviceMap = useMemo(() => {
+    if (hiddenEntityIds.length === 0) {
+      return controller.availableDeviceMap;
+    }
+    const hidden = new Set(hiddenEntityIds);
+    const filtered = new Map<string, DeviceWithType>();
+    controller.availableDeviceMap.forEach((device, key) => {
+      if (!hidden.has(key) && !hidden.has(device.id)) {
+        filtered.set(key, device);
+      }
+    });
+    return filtered;
+  }, [controller.availableDeviceMap, hiddenEntityIds]);
   useEffect(() => {
     if (activeSection !== 'energy' || !isEditMode) {
       setIsEnergyKpiCustomizationOpen(false);
@@ -605,7 +621,7 @@ function DashboardSectionRouterComponent({ controller }: DashboardSectionRouterP
             <Suspense fallback={<LoadingSpinner message={t('common.loading')} />}>
               <HomeDashboardOverview
                 deviceMap={controller.availableDeviceMap}
-                summaryDeviceMap={controller.deviceMap}
+                summaryDeviceMap={summaryDeviceMap}
                 cardSizes={cardSizes}
                 updateCardSize={updateCardSize}
                 isEditMode={isEditMode}
