@@ -22,7 +22,7 @@ function pickThemeValue<T>(theme: ThemeType, values: { light: T; glass: T; dark:
     return values.black;
   }
 
-  if (theme === 'dark') {
+  if ((theme === 'dark' || theme === 'graphite')) {
     return values.dark;
   }
 
@@ -131,7 +131,7 @@ function getThemeSurfaceClassName(theme: ThemeType, variant: string): string | n
     if (theme === 'black') {
       return 'bg-[linear-gradient(180deg,rgba(255,255,255,0.035),rgba(255,255,255,0.012)_28%,rgba(0,0,0,0.08)_100%)]';
     }
-    if (theme === 'dark') {
+    if ((theme === 'dark' || theme === 'graphite')) {
       return 'bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015)_28%,rgba(2,6,23,0.04)_100%)]';
     }
   }
@@ -144,7 +144,7 @@ function getThemeSurfaceClassName(theme: ThemeType, variant: string): string | n
     return 'bg-[linear-gradient(180deg,rgba(0,0,0,0.24),rgba(0,0,0,0.44)_100%)]';
   }
 
-  if (theme === 'dark') {
+  if ((theme === 'dark' || theme === 'graphite')) {
     return 'bg-[linear-gradient(180deg,rgba(2,6,23,0.12),rgba(2,6,23,0.28)_100%)]';
   }
 
@@ -158,7 +158,7 @@ function getDarkThemeScrim(theme: ThemeType): React.ReactNode {
     );
   }
 
-  if (theme === 'dark') {
+  if ((theme === 'dark' || theme === 'graphite')) {
     return (
       <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(2,6,23,0.14),rgba(2,6,23,0.28)_100%)]" />
     );
@@ -189,7 +189,7 @@ function getSunnyThemeSurface(theme: ThemeType): {
     };
   }
 
-  if (theme === 'dark') {
+  if ((theme === 'dark' || theme === 'graphite')) {
     return {
       themeSurfaceClassName:
         'bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015)_28%,rgba(2,6,23,0.04)_100%)]',

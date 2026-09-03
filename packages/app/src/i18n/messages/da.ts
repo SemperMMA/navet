@@ -1708,6 +1708,8 @@ export const daMessages = {
   'themePicker.customAccent': 'Brugerdefineret accentfarve',
   'themePicker.customAccentBadge': 'Vælg',
   'themePicker.previewSubtitle': '{mode} tilstand',
+  'themeOption.graphite.label': 'Graphite',
+  'themeOption.graphite.description': 'Flat charcoal surfaces matched to the Home Assistant Graphite theme',
   'themeOption.glass.label': 'Flydende glas',
   'themeOption.glass.description': 'Frostede gennemskinnelige paneler med lysende accenter',
   'themeOption.dark.label': 'Mørk',

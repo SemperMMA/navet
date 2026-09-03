@@ -65,7 +65,7 @@ function isVehicleLockEntity(
 }
 
 function getLockSliderStyles(
-  theme: 'light' | 'dark' | 'glass' | 'black',
+  theme: 'light' | 'dark' | 'glass' | 'black' | 'graphite',
   accentColor: string
 ): {
   progressFillStyle: CSSProperties;

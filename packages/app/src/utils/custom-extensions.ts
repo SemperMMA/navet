@@ -2,7 +2,7 @@ import type { Section } from '@navet/app/navigation/sections';
 import { sanitizeExternalUrl } from '@navet/app/utils/url-security';
 
 export const ADVANCED_CUSTOM_SIDEBAR_ACTION_LIMIT = 5;
-export const ADVANCED_CUSTOM_SUMMARY_PILL_LIMIT = 3;
+export const ADVANCED_CUSTOM_SUMMARY_PILL_LIMIT = 6;
 export const CUSTOM_EXTENSION_LABEL_MAX_LENGTH = 28;
 export const CUSTOM_EXTENSION_VALUE_MAX_LENGTH = 40;
 export const CUSTOM_EXTENSION_ENTITY_ID_MAX_LENGTH = 120;

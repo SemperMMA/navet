@@ -106,6 +106,7 @@ function repeatAcrossThemes(value: string): Record<ThemeType, string> {
   return {
     light: value,
     dark: value,
+    graphite: value,
     glass: value,
     black: value,
   };
@@ -289,6 +290,7 @@ function ColorsStory() {
         values: {
           light: themeColorMatrix.light.surface.textPrimary,
           dark: themeColorMatrix.dark.surface.textPrimary,
+          graphite: themeColorMatrix.dark.surface.textPrimary,
           glass: themeColorMatrix.glass.surface.textPrimary,
           black: themeColorMatrix.black.surface.textPrimary,
         },
@@ -300,6 +302,7 @@ function ColorsStory() {
         values: {
           light: themeColorMatrix.light.surface.textSecondary,
           dark: themeColorMatrix.dark.surface.textSecondary,
+          graphite: themeColorMatrix.dark.surface.textSecondary,
           glass: themeColorMatrix.glass.surface.textSecondary,
           black: themeColorMatrix.black.surface.textSecondary,
         },
@@ -311,6 +314,7 @@ function ColorsStory() {
         values: {
           light: themeColorMatrix.light.surface.textMuted,
           dark: themeColorMatrix.dark.surface.textMuted,
+          graphite: themeColorMatrix.dark.surface.textMuted,
           glass: themeColorMatrix.glass.surface.textMuted,
           black: themeColorMatrix.black.surface.textMuted,
         },
@@ -322,6 +326,7 @@ function ColorsStory() {
         values: {
           light: themeColorMatrix.light.surface.panel,
           dark: themeColorMatrix.dark.surface.panel,
+          graphite: themeColorMatrix.dark.surface.panel,
           glass: themeColorMatrix.glass.surface.panel,
           black: themeColorMatrix.black.surface.panel,
         },
@@ -333,6 +338,7 @@ function ColorsStory() {
         values: {
           light: themeColorMatrix.light.surface.panelMuted,
           dark: themeColorMatrix.dark.surface.panelMuted,
+          graphite: themeColorMatrix.dark.surface.panelMuted,
           glass: themeColorMatrix.glass.surface.panelMuted,
           black: themeColorMatrix.black.surface.panelMuted,
         },
@@ -344,6 +350,7 @@ function ColorsStory() {
         values: {
           light: themeColorMatrix.light.surface.iconBg,
           dark: themeColorMatrix.dark.surface.iconBg,
+          graphite: themeColorMatrix.dark.surface.iconBg,
           glass: themeColorMatrix.glass.surface.iconBg,
           black: themeColorMatrix.black.surface.iconBg,
         },
@@ -355,6 +362,7 @@ function ColorsStory() {
         values: {
           light: themeColorMatrix.light.surface.subtleBg,
           dark: themeColorMatrix.dark.surface.subtleBg,
+          graphite: themeColorMatrix.dark.surface.subtleBg,
           glass: themeColorMatrix.glass.surface.subtleBg,
           black: themeColorMatrix.black.surface.subtleBg,
         },
@@ -366,6 +374,7 @@ function ColorsStory() {
         values: {
           light: themeColorMatrix.light.surface.border,
           dark: themeColorMatrix.dark.surface.border,
+          graphite: themeColorMatrix.dark.surface.border,
           glass: themeColorMatrix.glass.surface.border,
           black: themeColorMatrix.black.surface.border,
         },
@@ -377,6 +386,7 @@ function ColorsStory() {
         values: {
           light: themeColorMatrix.light.colors.light.gradient,
           dark: themeColorMatrix.dark.colors.light.gradient,
+          graphite: themeColorMatrix.dark.colors.light.gradient,
           glass: themeColorMatrix.glass.colors.light.gradient,
           black: themeColorMatrix.black.colors.light.gradient,
         },
@@ -388,6 +398,7 @@ function ColorsStory() {
         values: {
           light: themeColorMatrix.light.colors.media.gradient,
           dark: themeColorMatrix.dark.colors.media.gradient,
+          graphite: themeColorMatrix.dark.colors.media.gradient,
           glass: themeColorMatrix.glass.colors.media.gradient,
           black: themeColorMatrix.black.colors.media.gradient,
         },
@@ -399,6 +410,7 @@ function ColorsStory() {
         values: {
           light: themeColorMatrix.light.colors.lock.locked.gradient,
           dark: themeColorMatrix.dark.colors.lock.locked.gradient,
+          graphite: themeColorMatrix.dark.colors.lock.locked.gradient,
           glass: themeColorMatrix.glass.colors.lock.locked.gradient,
           black: themeColorMatrix.black.colors.lock.locked.gradient,
         },
@@ -410,6 +422,7 @@ function ColorsStory() {
         values: {
           light: themeColorMatrix.light.colors.lock.unlocked.gradient,
           dark: themeColorMatrix.dark.colors.lock.unlocked.gradient,
+          graphite: themeColorMatrix.dark.colors.lock.unlocked.gradient,
           glass: themeColorMatrix.glass.colors.lock.unlocked.gradient,
           black: themeColorMatrix.black.colors.lock.unlocked.gradient,
         },
@@ -421,6 +434,7 @@ function ColorsStory() {
         values: {
           light: themeColorMatrix.light.colors.cover.open.gradient,
           dark: themeColorMatrix.dark.colors.cover.open.gradient,
+          graphite: themeColorMatrix.dark.colors.cover.open.gradient,
           glass: themeColorMatrix.glass.colors.cover.open.gradient,
           black: themeColorMatrix.black.colors.cover.open.gradient,
         },
@@ -432,6 +446,7 @@ function ColorsStory() {
         values: {
           light: themeColorMatrix.light.colors.climate.heating.gradient,
           dark: themeColorMatrix.dark.colors.climate.heating.gradient,
+          graphite: themeColorMatrix.dark.colors.climate.heating.gradient,
           glass: themeColorMatrix.glass.colors.climate.heating.gradient,
           black: themeColorMatrix.black.colors.climate.heating.gradient,
         },
@@ -443,6 +458,7 @@ function ColorsStory() {
         values: {
           light: themeColorMatrix.light.colors.climate.cooling.gradient,
           dark: themeColorMatrix.dark.colors.climate.cooling.gradient,
+          graphite: themeColorMatrix.dark.colors.climate.cooling.gradient,
           glass: themeColorMatrix.glass.colors.climate.cooling.gradient,
           black: themeColorMatrix.black.colors.climate.cooling.gradient,
         },
@@ -454,6 +470,7 @@ function ColorsStory() {
         values: {
           light: themeColorMatrix.light.colors.person.home.gradient,
           dark: themeColorMatrix.dark.colors.person.home.gradient,
+          graphite: themeColorMatrix.dark.colors.person.home.gradient,
           glass: themeColorMatrix.glass.colors.person.home.gradient,
           black: themeColorMatrix.black.colors.person.home.gradient,
         },
@@ -465,6 +482,7 @@ function ColorsStory() {
         values: {
           light: themeColorMatrix.light.colors.vacuum.cleaning.gradient,
           dark: themeColorMatrix.dark.colors.vacuum.cleaning.gradient,
+          graphite: themeColorMatrix.dark.colors.vacuum.cleaning.gradient,
           glass: themeColorMatrix.glass.colors.vacuum.cleaning.gradient,
           black: themeColorMatrix.black.colors.vacuum.cleaning.gradient,
         },
@@ -476,6 +494,7 @@ function ColorsStory() {
         values: {
           light: themeColorMatrix.light.colors.rss.gradient,
           dark: themeColorMatrix.dark.colors.rss.gradient,
+          graphite: themeColorMatrix.dark.colors.rss.gradient,
           glass: themeColorMatrix.glass.colors.rss.gradient,
           black: themeColorMatrix.black.colors.rss.gradient,
         },
@@ -487,6 +506,7 @@ function ColorsStory() {
         values: {
           light: themeColorMatrix.light.colors.calendar.gradient,
           dark: themeColorMatrix.dark.colors.calendar.gradient,
+          graphite: themeColorMatrix.dark.colors.calendar.gradient,
           glass: themeColorMatrix.glass.colors.calendar.gradient,
           black: themeColorMatrix.black.colors.calendar.gradient,
         },

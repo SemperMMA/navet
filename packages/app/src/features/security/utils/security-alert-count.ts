@@ -57,6 +57,17 @@ function includesAnyKeyword(text: string, keywords: string[]): boolean {
   return keywords.some((keyword) => text.includes(keyword));
 }
 
+const SECURITY_COVER_DEVICE_CLASSES = new Set(['door', 'garage', 'garage_door', 'gate']);
+
+function isSecurityRelevantCover(device: DeviceWithType & { type: 'covers' }): boolean {
+  const deviceClass = String(device.deviceClass ?? '').toLowerCase();
+  if (deviceClass) {
+    return SECURITY_COVER_DEVICE_CLASSES.has(deviceClass);
+  }
+  const text = `${device.id} ${device.name}`.toLowerCase();
+  return /\b(garage|gate|door)\b/.test(text);
+}
+
 function isSecuritySummaryCandidate(device: DeviceWithType): boolean {
   if (
     device.type === 'persons' ||
@@ -69,7 +80,7 @@ function isSecuritySummaryCandidate(device: DeviceWithType): boolean {
   return (
     Boolean(device.securityKind) ||
     device.type === 'locks' ||
-    device.type === 'covers' ||
+    (device.type === 'covers' && isSecurityRelevantCover(device)) ||
     device.type === 'cameras' ||
     (device.type === 'sensors' &&
       [

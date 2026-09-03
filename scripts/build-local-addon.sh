@@ -19,7 +19,27 @@ HA_HOST="root@192.168.30.67"
 rm -rf "$OUT"
 mkdir -p "$OUT/njs" "$OUT/snippets" "$OUT/html"
 
-cp "$SRC_ADDON/run.sh" "$OUT/run.sh"
+# Wrap upstream run.sh: mirror the njs stores in /data to the add-on config dir
+# (/addon_configs/local_navet408/store on the host) so dashboard/chore state is
+# readable from the SSH add-on and lands in the jmb-ha style file backups.
+cp "$SRC_ADDON/run.sh" "$OUT/run-upstream.sh"
+cat > "$OUT/run.sh" <<'EOF_RUN'
+#!/usr/bin/with-contenv bashio
+if [[ -d /config ]] && mkdir -p /config/store 2>/dev/null; then
+  # Restore: fresh /data (reinstall) but a mirrored store exists -> seed from it
+  if [[ -z "$(ls -A /data 2>/dev/null)" && -n "$(ls -A /config/store 2>/dev/null)" ]]; then
+    cp -a /config/store/. /data/
+    echo "navet408: restored /data from /config/store"
+  fi
+  (
+    while true; do
+      cp -u /data/navet-* /config/store/ 2>/dev/null || true
+      sleep 300
+    done
+  ) &
+fi
+exec /run-upstream.sh
+EOF_RUN
 cp -R "$SRC_ADDON/rootfs" "$OUT/rootfs"
 cp "$SRC_ADDON/icon.png" "$SRC_ADDON/logo.png" "$OUT/" 2>/dev/null || true
 cp "$REPO"/docker/njs/*.js "$OUT/njs/"
@@ -78,6 +98,7 @@ ARG BUILD_ARCH
 RUN apk add --no-cache bash nginx nginx-mod-http-js
 
 COPY run.sh /run.sh
+COPY run-upstream.sh /run-upstream.sh
 COPY rootfs/ /
 COPY njs/ /etc/nginx/njs/
 COPY snippets/ /etc/nginx/snippets/
@@ -85,7 +106,7 @@ COPY html/ /usr/share/nginx/html/
 
 RUN mkdir -p /data \
   && chown -R nginx:nginx /data \
-  && chmod a+x /run.sh
+  && chmod a+x /run.sh /run-upstream.sh
 
 LABEL \
   io.hass.version="${BUILD_VERSION}" \

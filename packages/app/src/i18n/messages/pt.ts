@@ -1619,6 +1619,8 @@ export const ptMessages = {
   'themePicker.customAccent': 'Cor de destaque personalizada',
   'themePicker.customAccentBadge': 'Escolher',
   'themePicker.previewSubtitle': 'Modo {mode}',
+  'themeOption.graphite.label': 'Graphite',
+  'themeOption.graphite.description': 'Flat charcoal surfaces matched to the Home Assistant Graphite theme',
   'themeOption.glass.label': 'Vidro Líquido',
   'themeOption.glass.description': 'Painéis translúcidos foscos com destaques luminosos',
   'themeOption.dark.label': 'Escuro',

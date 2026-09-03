@@ -150,6 +150,32 @@ export function getThemeSurfaceTokens(
     };
   }
 
+  if (theme === 'graphite') {
+    return {
+      appBg: 'bg-[#101215]',
+      shellPanel: 'bg-[#1c1d21] border-[rgba(255,255,255,0.06)]',
+      panel: 'bg-[#23242b]',
+      panelMuted: 'bg-[#1c1d21]',
+      border: 'border-[rgba(255,255,255,0.06)]',
+      borderStrong: 'border-[rgba(255,255,255,0.1)]',
+      divider: 'divide-[rgba(255,255,255,0.06)]',
+      dividerBorder: 'border-[rgba(255,255,255,0.06)]',
+      textPrimary: 'text-[#e4e4e7]',
+      textSecondary: 'text-[#b4b6c2]',
+      textSubtle: 'text-[#9c9eab]',
+      textMuted: 'text-[#8a8c99]',
+      iconBg: 'bg-[#2e3038]',
+      subtleBg: 'bg-[#1c1d21]',
+      hoverBg: 'hover:bg-[#2e3038]',
+      inputBg: 'bg-[#2e3038]',
+      placeholder: 'placeholder-[#8a8c99]',
+      cardShadow: 'shadow-[0_3px_8px_0_rgba(0,0,0,0.12)]',
+      lightOverlay: null,
+      dialogBackdrop: 'bg-black/50',
+      ringOffset: 'ring-offset-[#101215]',
+    };
+  }
+
   return {
     appBg: 'bg-[#0a0a0a]',
     shellPanel: 'bg-[rgba(24,24,27,0.96)] border-[rgba(161,161,170,0.18)]',

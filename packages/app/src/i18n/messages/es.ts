@@ -1624,6 +1624,8 @@ export const esMessages = {
   'themePicker.customAccent': 'Color de acento personalizado',
   'themePicker.customAccentBadge': 'Elegir',
   'themePicker.previewSubtitle': 'Modo {mode}',
+  'themeOption.graphite.label': 'Graphite',
+  'themeOption.graphite.description': 'Flat charcoal surfaces matched to the Home Assistant Graphite theme',
   'themeOption.glass.label': 'Cristal líquido',
   'themeOption.glass.description': 'Paneles translúcidos esmerilados con acentos luminosos',
   'themeOption.dark.label': 'Oscuro',

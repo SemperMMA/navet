@@ -1248,6 +1248,8 @@ export const enMessages = {
   'themePicker.customAccent': 'Custom accent color',
   'themePicker.customAccentBadge': 'Pick',
   'themePicker.previewSubtitle': '{mode} mode',
+  'themeOption.graphite.label': 'Graphite',
+  'themeOption.graphite.description': 'Flat charcoal surfaces matched to the Home Assistant Graphite theme',
   'themeOption.glass.label': 'Liquid Glass',
   'themeOption.glass.description': 'Frosted translucent panels with luminous accents',
   'themeOption.dark.label': 'Dark',

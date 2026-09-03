@@ -1705,6 +1705,8 @@ export const noMessages = {
   'themePicker.customAccent': 'Egendefinert aksentfarge',
   'themePicker.customAccentBadge': 'Velg',
   'themePicker.previewSubtitle': '{mode}-modus',
+  'themeOption.graphite.label': 'Graphite',
+  'themeOption.graphite.description': 'Flat charcoal surfaces matched to the Home Assistant Graphite theme',
   'themeOption.glass.label': 'Flytende glass',
   'themeOption.glass.description': 'Frostede gjennomskinnelige paneler med lysende aksenter',
   'themeOption.dark.label': 'Mørkt',

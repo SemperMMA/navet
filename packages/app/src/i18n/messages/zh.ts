@@ -1107,6 +1107,8 @@ export const zhMessages = {
   'themePicker.customAccent': '自定义强调色',
   'themePicker.customAccentBadge': '选择',
   'themePicker.previewSubtitle': '{mode} 模式',
+  'themeOption.graphite.label': 'Graphite',
+  'themeOption.graphite.description': 'Flat charcoal surfaces matched to the Home Assistant Graphite theme',
   'themeOption.glass.label': '液态玻璃',
   'themeOption.dark.label': '深色',
   'themeOption.light.label': '浅色',

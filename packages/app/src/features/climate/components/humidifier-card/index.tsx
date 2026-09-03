@@ -77,7 +77,7 @@ function getHumidityGlowClassName(deviceClass: string | undefined): string {
 function getHumidifierCardColors(
   isOn: boolean,
   deviceClass: string | undefined,
-  theme: 'light' | 'dark' | 'glass' | 'black'
+  theme: 'light' | 'dark' | 'glass' | 'black' | 'graphite'
 ) {
   if (!isOn) {
     if (theme === 'light') {
@@ -214,7 +214,7 @@ function getHumidifierModeButtonClass(
   buttonMode: string,
   currentMode: string | undefined,
   isOn: boolean,
-  theme: 'light' | 'dark' | 'glass' | 'black'
+  theme: 'light' | 'dark' | 'glass' | 'black' | 'graphite'
 ) {
   const normalizedButtonMode = buttonMode.toLowerCase();
   const normalizedCurrentMode = currentMode?.toLowerCase();

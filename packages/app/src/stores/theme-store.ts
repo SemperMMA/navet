@@ -9,7 +9,7 @@ import { sanitizeImageUrl } from '@navet/app/utils/url-security';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
-export type ThemeMode = 'light' | 'dark' | 'black' | 'glass';
+export type ThemeMode = 'light' | 'dark' | 'black' | 'glass' | 'graphite';
 export type PrimaryColor =
   | 'blue'
   | 'purple'

@@ -9,6 +9,7 @@ const ACCENTS = ['yellow', 'green', 'teal', 'blue', 'purple', 'amber', 'emerald'
 const THEME_LABELS: Record<ThemeType, string> = {
   glass: 'glass',
   dark: 'dark',
+  graphite: 'dark',
   light: 'light',
   black: 'black',
 };

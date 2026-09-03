@@ -15,6 +15,11 @@ export type PrimaryColorOption = {
 
 export const THEME_OPTIONS: ThemeOption[] = [
   {
+    value: 'graphite',
+    labelKey: 'themeOption.graphite.label',
+    descriptionKey: 'themeOption.graphite.description',
+  },
+  {
     value: 'glass',
     labelKey: 'themeOption.glass.label',
     descriptionKey: 'themeOption.glass.description',

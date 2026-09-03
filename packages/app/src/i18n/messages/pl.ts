@@ -1709,6 +1709,8 @@ export const plMessages = {
   'themePicker.customAccent': 'Niestandardowy kolor akcentu',
   'themePicker.customAccentBadge': 'Wybierz',
   'themePicker.previewSubtitle': 'Tryb {mode}',
+  'themeOption.graphite.label': 'Graphite',
+  'themeOption.graphite.description': 'Flat charcoal surfaces matched to the Home Assistant Graphite theme',
   'themeOption.glass.label': 'Liquid Glass',
   'themeOption.glass.description': 'Matowe, półprzezroczyste panele ze świetlistymi akcentami',
   'themeOption.dark.label': 'Ciemny',

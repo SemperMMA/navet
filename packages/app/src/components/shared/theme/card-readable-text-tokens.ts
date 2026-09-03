@@ -34,6 +34,7 @@ const FAMILY_BASE_COLORS: Record<Exclude<CardTextTone, 'primary' | 'neutral'>, s
 const NEUTRAL_BACKGROUNDS: Record<ThemeType, string> = {
   light: '#f3f4f6',
   dark: '#18181b',
+  graphite: '#23242b',
   glass: '#334155',
   black: '#000000',
 };

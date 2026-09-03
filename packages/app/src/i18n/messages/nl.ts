@@ -1719,6 +1719,8 @@ export const nlMessages = {
   'themePicker.customAccent': 'Aangepaste accentkleur',
   'themePicker.customAccentBadge': 'Kies',
   'themePicker.previewSubtitle': '{mode}-modus',
+  'themeOption.graphite.label': 'Graphite',
+  'themeOption.graphite.description': 'Flat charcoal surfaces matched to the Home Assistant Graphite theme',
   'themeOption.glass.label': 'Vloeibaar glas',
   'themeOption.glass.description': 'Frosted doorschijnende panelen met lichtgevende accenten',
   'themeOption.dark.label': 'Donker',

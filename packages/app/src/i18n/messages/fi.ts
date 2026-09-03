@@ -1710,6 +1710,8 @@ export const fiMessages = {
   'themePicker.customAccent': 'Mukautettu korostusväri',
   'themePicker.customAccentBadge': 'Valitse',
   'themePicker.previewSubtitle': '{mode}-tilassa',
+  'themeOption.graphite.label': 'Graphite',
+  'themeOption.graphite.description': 'Flat charcoal surfaces matched to the Home Assistant Graphite theme',
   'themeOption.glass.label': 'Nestemäinen lasi',
   'themeOption.glass.description': 'Huurretut läpikuultavat paneelit kirkkailla korosteilla',
   'themeOption.dark.label': 'Tumma',

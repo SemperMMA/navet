@@ -1610,6 +1610,8 @@ export const svMessages = {
   'themePicker.customAccent': 'Anpassad accentfärg',
   'themePicker.customAccentBadge': 'Välj',
   'themePicker.previewSubtitle': '{mode}-läge',
+  'themeOption.graphite.label': 'Graphite',
+  'themeOption.graphite.description': 'Flat charcoal surfaces matched to the Home Assistant Graphite theme',
   'themeOption.glass.label': 'Flytande glas',
   'themeOption.glass.description': 'Frostade transparenta paneler med lysande accenter',
   'themeOption.dark.label': 'Mörk',

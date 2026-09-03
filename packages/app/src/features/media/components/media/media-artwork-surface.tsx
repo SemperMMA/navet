@@ -8,7 +8,7 @@ interface MediaArtworkSurfaceProps {
   artwork?: string | null;
   onArtworkError?: (imageUrl?: string | null) => void;
   palette: MediaArtworkPalette;
-  theme?: 'light' | 'dark' | 'black' | 'glass';
+  theme?: 'light' | 'dark' | 'black' | 'glass' | 'graphite';
   layout?: 'full' | 'split' | 'stacked';
   imagePaddingClassName?: string;
   imageClassName?: string;

@@ -6,6 +6,7 @@ import {
 import { getSecurityAlertCount } from '@navet/app/features/security/utils/security-alert-count';
 import { defaultTranslate, type TranslateFn } from '@navet/app/i18n';
 import type { Section } from '@navet/app/navigation/sections';
+import { ensureCanonicalEntityId } from '@navet/app/utils/provider-entity-id';
 import type { DeviceWithType } from '@navet/app/types/device.types';
 import type { OperationalPriority, OperationalTone } from '@navet/app/types/operational-signal';
 import { getCustomExtensionIcon } from '@navet/app/utils/custom-extension-icons';
@@ -45,7 +46,7 @@ export interface StatusSummaryOptions {
 }
 
 const NON_AMBIENT_CLIMATE_SENSOR_PATTERN =
-  /\b(boiler|water_heater|water heater|hot water|tank|cylinder|supply|return|flow temp|outside|outdoor|exterior|weather|processor|cpu|system monitor|system_monitor|device temperature|internal)\b/;
+  /\b(boiler|water_heater|water heater|hot water|tank|cylinder|supply|return|flow temp|outside|outdoor|exterior|weather|processor|cpu|gpu|system monitor|system_monitor|device temperature|internal|chip|core|coordinator|module|router|switch|gateway|nvr|server|rack|pdu|ups|inverter|charger|battery|vehicle|car|cabin|driver|passenger|setting|target|fridge|freezer|refrigerator|oven|dew point|feels like|pool|spa|soil)\b/;
 const AMBIENT_FAHRENHEIT_INFERENCE_THRESHOLD = 45;
 
 function getNumber(value: unknown): number | null {
@@ -305,9 +306,63 @@ function formatCustomSummaryDeviceValue(
       return `${formatDisplayTemperature(Math.round(device.currentTemperature ?? device.temperature))}°`;
     case 'weather':
       return `${formatDisplayTemperature(Math.round(device.temperature))}°`;
+    case 'covers': {
+      const position = Number(device.position);
+      return Number.isFinite(position) && position > 0
+        ? `${t('common.open')} · ${Math.round(position)}%`
+        : t('cover.state.closed');
+    }
+    case 'persons':
+      return device.state === 'home' ? t('person.home') : t('person.away');
+    case 'vacuums':
+      return humanizeStateValue(String(device.status ?? ''));
     default:
-      return null;
+      return humanizeStateValue(readRawState(device));
   }
+}
+
+function readRawState(device: DeviceWithType): string {
+  const raw = (device as { rawState?: unknown; state?: unknown }).rawState;
+  if (typeof raw === 'string' && raw.trim()) {
+    return raw;
+  }
+  const state = (device as { state?: unknown }).state;
+  if (typeof state === 'string' && state.trim()) {
+    return state;
+  }
+  if (typeof state === 'boolean') {
+    return state ? 'on' : 'off';
+  }
+  return '';
+}
+
+function humanizeStateValue(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === 'unknown' || trimmed === 'unavailable') {
+    return null;
+  }
+  return trimmed
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function findDeviceByEntityId(
+  deviceMap: Map<string, DeviceWithType>,
+  entityId: string
+): DeviceWithType | undefined {
+  const bare = entityId.includes(':') ? entityId.slice(entityId.indexOf(':') + 1) : entityId;
+  for (const device of deviceMap.values()) {
+    const candidate = device as { id?: string; nativeId?: string; canonicalId?: string };
+    if (
+      candidate.id === entityId ||
+      candidate.nativeId === bare ||
+      candidate.canonicalId === entityId ||
+      (typeof candidate.id === 'string' && candidate.id.endsWith(`:${bare}`))
+    ) {
+      return device;
+    }
+  }
+  return undefined;
 }
 
 function buildCustomSummaryItems(
@@ -320,7 +375,12 @@ function buildCustomSummaryItems(
       item.valueSourceType === 'static'
         ? (item.staticValue ?? '')
         : item.entityId
-          ? formatCustomSummaryDeviceValue(deviceMap.get(item.entityId), t)
+          ? formatCustomSummaryDeviceValue(
+              deviceMap.get(item.entityId) ??
+                deviceMap.get(ensureCanonicalEntityId(item.entityId)) ??
+                findDeviceByEntityId(deviceMap, item.entityId),
+              t
+            )
           : null;
 
     if (!value && item.visibility === 'when_value_available') {

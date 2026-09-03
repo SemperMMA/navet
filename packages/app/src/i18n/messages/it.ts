@@ -1928,6 +1928,8 @@ export const itMessages = {
   'themePicker.customAccent': 'Accento personalizzato',
   'themePicker.customAccentBadge': 'Personalizzato',
   'themePicker.previewSubtitle': 'Modalità {mode}',
+  'themeOption.graphite.label': 'Graphite',
+  'themeOption.graphite.description': 'Flat charcoal surfaces matched to the Home Assistant Graphite theme',
   'themeOption.glass.label': 'Vetro',
   'themeOption.glass.description': 'Superfici traslucide con profondità e colore ambientale.',
   'themeOption.dark.label': 'Scuro',

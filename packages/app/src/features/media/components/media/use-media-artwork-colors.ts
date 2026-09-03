@@ -41,6 +41,13 @@ const FALLBACK_COLORS: Record<ThemeType, MediaArtworkPalette> = {
     highlight: 'rgb(228, 228, 231)',
     gradientEnd: 'rgb(24, 24, 27)',
   },
+  graphite: {
+    dominant: 'rgb(35, 36, 43)',
+    vibrant: 'rgb(138, 140, 153)',
+    darkMuted: 'rgb(16, 18, 21)',
+    highlight: 'rgb(228, 228, 231)',
+    gradientEnd: 'rgb(16, 18, 21)',
+  },
   black: {
     dominant: 'rgb(12, 12, 12)',
     vibrant: 'rgb(96, 96, 96)',

@@ -150,7 +150,7 @@ export const WeatherCard = memo(function WeatherCard({
   const textPrimary = weatherTextTreatment.primary;
   const textSecondary = weatherTextTreatment.secondary;
   const shellGlowOpacityClass =
-    theme === 'black' ? 'opacity-18' : theme === 'dark' ? 'opacity-28' : 'opacity-55';
+    theme === 'black' ? 'opacity-18' : theme === 'dark' || theme === 'graphite' ? 'opacity-28' : 'opacity-55';
   const weatherOverlayClassName = hasCustomTint
     ? (tintSurface.overlayClassName ?? 'bg-transparent')
     : [surface.lightOverlay, shell.overlayClassName].filter(Boolean).join(' ');

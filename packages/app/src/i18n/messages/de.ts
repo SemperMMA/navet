@@ -1630,6 +1630,8 @@ export const deMessages = {
   'themePicker.customAccent': 'Benutzerdefinierte Akzentfarbe',
   'themePicker.customAccentBadge': 'Wählen',
   'themePicker.previewSubtitle': '{mode}-Modus',
+  'themeOption.graphite.label': 'Graphite',
+  'themeOption.graphite.description': 'Flat charcoal surfaces matched to the Home Assistant Graphite theme',
   'themeOption.glass.label': 'Flüssiges Glas',
   'themeOption.glass.description': 'Mattierte transparente Flächen mit leuchtenden Akzenten',
   'themeOption.dark.label': 'Dunkel',

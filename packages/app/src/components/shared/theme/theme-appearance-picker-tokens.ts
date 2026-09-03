@@ -4,6 +4,7 @@ export function getThemeAppearancePickerTokens(previewTheme: ThemeType, accentCo
   const isLight = previewTheme === 'light';
   const isGlass = previewTheme === 'glass';
   const isBlack = previewTheme === 'black';
+  const isGraphite = previewTheme === 'graphite';
 
   return {
     textClassName: isLight ? 'text-slate-950' : 'text-white',
@@ -40,7 +41,9 @@ export function getThemeAppearancePickerTokens(previewTheme: ThemeType, accentCo
         ? 'linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.05))'
         : isBlack
           ? 'linear-gradient(180deg, rgba(0,0,0,1), rgba(0,0,0,0.985))'
-          : 'linear-gradient(180deg, rgba(17,24,39,0.94), rgba(3,7,18,0.96))',
+          : isGraphite
+            ? 'linear-gradient(180deg, rgba(35,36,43,0.98), rgba(16,18,21,1))'
+            : 'linear-gradient(180deg, rgba(17,24,39,0.94), rgba(3,7,18,0.96))',
     previewCardBackground(index: number) {
       if (isLight) {
         return index === 0 ? `${accentColor}12` : 'rgba(255,255,255,0.92)';
@@ -52,6 +55,10 @@ export function getThemeAppearancePickerTokens(previewTheme: ThemeType, accentCo
 
       if (isBlack) {
         return 'rgba(0,0,0,1)';
+      }
+
+      if (isGraphite) {
+        return index === 0 ? `${accentColor}22` : 'rgba(46,48,56,0.96)';
       }
 
       return index === 0 ? `${accentColor}16` : 'rgba(255,255,255,0.05)';

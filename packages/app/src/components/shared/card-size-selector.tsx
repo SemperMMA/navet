@@ -280,7 +280,7 @@ export const CardSizeSelector = memo(function CardSizeSelector({
 });
 
 function getSizeGlyphTokens(
-  theme: 'glass' | 'dark' | 'light' | 'black',
+  theme: 'glass' | 'dark' | 'light' | 'black' | 'graphite',
   active: boolean,
   accentColor: string
 ) {
@@ -338,7 +338,7 @@ function SizePreviewGlyph({
   size: { value: CardSize; cols: number; rows: number };
   active: boolean;
   accentColor: string;
-  theme: 'glass' | 'dark' | 'light' | 'black';
+  theme: 'glass' | 'dark' | 'light' | 'black' | 'graphite';
 }) {
   const { strokeColor, fillColor } = getSizeGlyphTokens(theme, active, accentColor);
   const glyphUnit = getPreviewGlyphUnit(size.value);
