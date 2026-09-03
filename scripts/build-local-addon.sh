@@ -41,6 +41,8 @@ fi
 exec /run-upstream.sh
 EOF_RUN
 cp -R "$SRC_ADDON/rootfs" "$OUT/rootfs"
+# Surface nginx/njs errors in the Supervisor add-on log instead of a file inside the container
+sed -i '' -e 's#^error_log /var/log/nginx/error.log notice;#error_log /dev/stderr notice;#' "$OUT/rootfs/etc/nginx/nginx.conf"
 cp "$SRC_ADDON/icon.png" "$SRC_ADDON/logo.png" "$OUT/" 2>/dev/null || true
 cp "$REPO"/docker/njs/*.js "$OUT/njs/"
 cp "$REPO"/docker/snippets/*.conf "$OUT/snippets/"
