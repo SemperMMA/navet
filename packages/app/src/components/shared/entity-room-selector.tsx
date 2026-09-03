@@ -33,6 +33,7 @@ interface EntityRoomSelectorProps {
   selectStyle?: CSSProperties;
   compactContentClassName?: string;
   compactContentStyle?: CSSProperties;
+  compactVariant?: 'pill' | 'plain';
 }
 
 const CREATE_ROOM_VALUE = '__create_room__';
@@ -48,6 +49,7 @@ export const EntityRoomSelector = memo(function EntityRoomSelector({
   selectStyle,
   compactContentClassName,
   compactContentStyle,
+  compactVariant = 'pill',
 }: EntityRoomSelectorProps) {
   const { theme } = useTheme();
   const { t } = useI18n();
@@ -217,6 +219,7 @@ export const EntityRoomSelector = memo(function EntityRoomSelector({
           <div className={`relative inline-block min-w-0 ${compactContentClassName ?? ''}`}>
             <RoomEyebrow
               room={selectedRoomLabel}
+              variant={compactVariant}
               isLoading={isSaving}
               forceDark={forceDark}
               visualOnly
@@ -232,7 +235,7 @@ export const EntityRoomSelector = memo(function EntityRoomSelector({
                 setIsCompactFocused(event.currentTarget.matches(':focus-visible'))
               }
               onBlur={() => setIsCompactFocused(false)}
-              className="absolute inset-0 z-10 h-full w-full cursor-pointer appearance-none opacity-0 disabled:cursor-not-allowed"
+              className="absolute inset-0 z-10 h-full w-full cursor-pointer appearance-none text-sm font-normal opacity-0 disabled:cursor-not-allowed"
             >
               <option value="">{t('common.noRoom')}</option>
               {assignableRooms.map((room) => (

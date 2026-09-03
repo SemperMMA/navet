@@ -22,6 +22,8 @@ export interface ModalSurfaceProps {
   contentGlowStyle?: CSSProperties;
   contentOverlayClassName?: string | null;
   disableOpenAutoFocus?: boolean;
+  mobileCoverSheet?: boolean;
+  mobileCoverSheetActions?: ReactNode;
 }
 
 export function ModalSurface({
@@ -39,6 +41,8 @@ export function ModalSurface({
   contentGlowStyle,
   contentOverlayClassName,
   disableOpenAutoFocus,
+  mobileCoverSheet = false,
+  mobileCoverSheetActions,
 }: ModalSurfaceProps) {
   const { theme } = useTheme();
 
@@ -60,6 +64,9 @@ export function ModalSurface({
       shellBodyClassName={shellBodyClassName}
       bodyClassName={shellBodyClassName}
       bodyPadding={false}
+      mobileCoverSheet={mobileCoverSheet}
+      persistentMobileDismiss={mobileCoverSheet}
+      mobileCoverSheetActions={mobileCoverSheetActions}
     >
       <div className={cn('relative', navetUiKitRadiusTokens.dialog, bodyClassName)}>{children}</div>
     </BaseCardDialog>

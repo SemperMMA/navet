@@ -1,5 +1,5 @@
 import { SummaryBar } from '@navet/app/features/sensors';
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 import { Clipboard, ClipboardCheck, Fan, Lightbulb, Lock, Speaker, Zap } from 'lucide-react';
 import type { HomeStatusSummaryItem } from './home-status-summary-model';
 
@@ -127,7 +127,7 @@ export const OverdueChores: Story = {
       item.id === 'chores'
         ? {
             ...item,
-            value: 'Overdue · 4 remaining',
+            value: '4 overdue',
             iconColor: '#f87171',
             tone: 'danger',
           }
@@ -171,7 +171,12 @@ export const SemanticTones: Story = {
 
 export const PhoneOverflow: Story = {
   args: { items },
-  parameters: { viewport: { defaultViewport: 'iphone14' } },
+  globals: {
+    viewport: {
+      value: 'iphone14',
+      isRotated: false,
+    },
+  },
 };
 
 export const LongLabel: Story = {

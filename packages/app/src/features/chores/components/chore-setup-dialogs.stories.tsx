@@ -1,7 +1,12 @@
 import { createChoreDemoWorkspace } from '@navet/app/features/chores/chore-demo-fixture';
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, fireEvent, fn, userEvent, within } from 'storybook/test';
-import { AddChoreDialog, AddPersonDialog } from './chore-setup-dialogs';
+import {
+  AddChoreDialog,
+  AddPersonDialog,
+  ChoreManagementPinDialog,
+  ChoreManagementPinEditorDialog,
+} from './chore-setup-dialogs';
 
 const workspace = createChoreDemoWorkspace({
   copy: {
@@ -28,6 +33,7 @@ const workspace = createChoreDemoWorkspace({
 });
 const saveChore = fn(async () => false);
 const saveEditedChore = fn(async () => false);
+const saveManagementPin = fn(async () => true);
 
 function ChoreCreationStory() {
   return (
@@ -61,6 +67,28 @@ function PersonCreationStory() {
   return <AddPersonDialog isOpen onOpenChange={fn()} onSave={async () => true} />;
 }
 
+function ManagementUnlockStory() {
+  return (
+    <ChoreManagementPinDialog
+      isOpen
+      error="Unlock chore management to continue"
+      onOpenChange={fn()}
+      onUnlock={async () => false}
+    />
+  );
+}
+
+function ManagementPinEditorStory() {
+  return (
+    <ChoreManagementPinEditorDialog
+      configured
+      isOpen
+      onOpenChange={fn()}
+      onSave={saveManagementPin}
+    />
+  );
+}
+
 const meta = {
   title: 'Pages/Household/Add Chore Dialog',
   component: ChoreCreationStory,
@@ -82,15 +110,28 @@ type Story = StoryObj<typeof meta>;
 export const DesktopDetails: Story = {};
 
 export const MobileContinuousEditor: Story = {
-  parameters: { viewport: { defaultViewport: 'mobile1' } },
   play: async ({ canvasElement }) => {
     saveChore.mockClear();
     const dialog = within(canvasElement.ownerDocument.body).getByRole('dialog', {
       name: 'Add a chore',
     });
-    await expect(dialog).toHaveClass('max-sm:!rounded-[30px]', 'max-sm:!bottom-2');
+    await expect(dialog).toHaveClass(
+      'max-sm:!h-[80dvh]',
+      'max-sm:!rounded-t-[30px]',
+      'max-sm:!rounded-b-none',
+      'max-sm:!bottom-0'
+    );
+    await expect(dialog).toHaveClass('max-sm:!overflow-y-auto', 'max-sm:overscroll-contain');
+    await expect(dialog.querySelector('form')).toHaveClass('max-sm:h-auto', 'max-sm:min-h-full');
+    await expect(dialog.querySelector('header')).toHaveClass('py-3', 'sm:py-4');
+    await expect(dialog.querySelector('main')?.parentElement).toHaveClass(
+      'max-sm:flex-none',
+      'max-sm:overflow-visible'
+    );
     await expect(
-      within(canvasElement.ownerDocument.body).getByRole('button', { name: 'Close dialog' })
+      within(canvasElement.ownerDocument.body).getByRole('button', {
+        name: 'Drag dialog to fullscreen or close',
+      })
     ).toBeInTheDocument();
     await expect(
       within(dialog).getAllByRole('heading', { name: 'The chore' })[0]
@@ -101,7 +142,8 @@ export const MobileContinuousEditor: Story = {
     ).toBeInTheDocument();
     await expect(within(dialog).getByLabelText('Chore name')).toHaveValue('');
     await expect(within(dialog).getByLabelText('Room')).toBeInTheDocument();
-    await expect(within(dialog).getAllByLabelText('Repeat every')).toHaveLength(1);
+    await expect(within(dialog).queryByLabelText('Repeat every (days)')).toBeNull();
+    await expect(within(dialog).queryByText('Days of the week')).toBeNull();
     await userEvent.type(within(dialog).getByLabelText('Chore name'), 'Water the plants');
     await expect(dialog.querySelector('[aria-live="polite"]')).toHaveTextContent(
       'Water the plants'
@@ -113,6 +155,12 @@ export const MobileContinuousEditor: Story = {
     await userEvent.click(within(dialog).getByLabelText('More options: The chore'));
     await expect(within(dialog).getByLabelText('Instructions')).toBeVisible();
     await expect(within(dialog).getByLabelText('Require approval')).not.toBeVisible();
+  },
+  globals: {
+    viewport: {
+      value: 'mobile1',
+      isRotated: false,
+    },
   },
 };
 
@@ -145,6 +193,21 @@ export const DesktopContinuousCreation: Story = {
     await expect(repeatSelect).toHaveValue('biweekly');
     await userEvent.selectOptions(repeatSelect, 'triweekly');
     await expect(repeatSelect).toHaveValue('triweekly');
+    await userEvent.selectOptions(repeatSelect, 'fourweekly');
+    await expect(repeatSelect).toHaveValue('fourweekly');
+    await userEvent.selectOptions(repeatSelect, 'weekdays');
+    await expect(repeatSelect).toHaveValue('weekdays');
+    await userEvent.selectOptions(repeatSelect, 'weekends');
+    await expect(repeatSelect).toHaveValue('weekends');
+    await userEvent.selectOptions(repeatSelect, 'custom');
+    await expect(repeatSelect).toHaveValue('custom');
+    const customInterval = within(dialog).getByLabelText('Repeat every (days)');
+    await expect(repeatSelect.parentElement?.parentElement?.nextElementSibling).toBe(
+      customInterval.parentElement?.parentElement
+    );
+    fireEvent.change(customInterval, {
+      target: { value: '10' },
+    });
     fireEvent.change(within(dialog).getByLabelText('Start date'), {
       target: { value: '2026-12-07' },
     });
@@ -152,7 +215,7 @@ export const DesktopContinuousCreation: Story = {
     await userEvent.type(within(dialog).getByLabelText('Dates to skip'), '2026-12-24');
     await userEvent.click(within(dialog).getByLabelText('More options: The chore'));
     await userEvent.click(within(dialog).getByLabelText('More options: When it repeats'));
-    await expect(within(dialog).queryByLabelText('Repeat every')).toBeNull();
+    await expect(within(dialog).queryByText('Days of the week')).toBeNull();
     await expect(dialog.querySelectorAll('input[type="color"]')).toHaveLength(1);
     await expect(within(dialog).getByLabelText('Instructions')).toBeInTheDocument();
     await expect(within(dialog).getByLabelText('When missed')).toBeInTheDocument();
@@ -160,10 +223,79 @@ export const DesktopContinuousCreation: Story = {
     await expect(saveChore).toHaveBeenCalledWith(
       expect.objectContaining({
         schedule: expect.objectContaining({
-          frequency: 'weekly',
-          intervalWeeks: 3,
+          frequency: 'daily',
+          intervalDays: 10,
+          daysOfWeek: undefined,
           endDate: '2026-12-31',
           excludedDates: ['2026-12-24'],
+        }),
+      }),
+      expect.any(Object)
+    );
+  },
+};
+
+export const WeekdaySchedule: Story = {
+  play: async ({ canvasElement }) => {
+    saveChore.mockClear();
+    const dialog = within(canvasElement.ownerDocument.body).getByRole('dialog', {
+      name: 'Add a chore',
+    });
+    await userEvent.type(within(dialog).getByLabelText('Chore name'), 'Empty the dishwasher');
+    await userEvent.selectOptions(within(dialog).getByLabelText('Repeat'), 'weekdays');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Add chore' }));
+
+    await expect(saveChore).toHaveBeenCalledWith(
+      expect.objectContaining({
+        schedule: expect.objectContaining({
+          frequency: 'daily',
+          daysOfWeek: [1, 2, 3, 4, 5],
+          intervalDays: 1,
+        }),
+      }),
+      expect.any(Object)
+    );
+  },
+};
+
+export const WeekendSchedule: Story = {
+  play: async ({ canvasElement }) => {
+    saveChore.mockClear();
+    const dialog = within(canvasElement.ownerDocument.body).getByRole('dialog', {
+      name: 'Add a chore',
+    });
+    await userEvent.type(within(dialog).getByLabelText('Chore name'), 'Water the garden');
+    await userEvent.selectOptions(within(dialog).getByLabelText('Repeat'), 'weekends');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Add chore' }));
+
+    await expect(saveChore).toHaveBeenCalledWith(
+      expect.objectContaining({
+        schedule: expect.objectContaining({
+          frequency: 'daily',
+          daysOfWeek: [0, 6],
+          intervalDays: 1,
+        }),
+      }),
+      expect.any(Object)
+    );
+  },
+};
+
+export const EveryFourWeeksSchedule: Story = {
+  play: async ({ canvasElement }) => {
+    saveChore.mockClear();
+    const dialog = within(canvasElement.ownerDocument.body).getByRole('dialog', {
+      name: 'Add a chore',
+    });
+    await userEvent.type(within(dialog).getByLabelText('Chore name'), 'Clean the extractor fan');
+    await userEvent.selectOptions(within(dialog).getByLabelText('Repeat'), 'fourweekly');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Add chore' }));
+
+    await expect(saveChore).toHaveBeenCalledWith(
+      expect.objectContaining({
+        schedule: expect.objectContaining({
+          frequency: 'weekly',
+          intervalWeeks: 4,
         }),
       }),
       expect.any(Object)
@@ -196,7 +328,6 @@ export const LightTheme: Story = {
 
 export const PersonStepperCreation: Story = {
   render: () => <PersonCreationStory />,
-  parameters: { viewport: { defaultViewport: 'mobile1' } },
   play: async ({ canvasElement }) => {
     const dialog = within(canvasElement.ownerDocument.body).getByRole('dialog', {
       name: 'Add a person',
@@ -236,5 +367,67 @@ export const PersonStepperCreation: Story = {
     await expect(reminderSwitch).toBeInTheDocument();
     await expect(reminderSwitch).toHaveClass('h-7', 'w-11');
     await expect(reminderSwitch.firstElementChild).toHaveClass('translate-x-[14px]');
+  },
+  globals: {
+    viewport: {
+      value: 'mobile1',
+      isRotated: false,
+    },
+  },
+};
+
+export const ManagementUnlockError: Story = {
+  render: () => <ManagementUnlockStory />,
+  play: async ({ canvasElement }) => {
+    const dialog = within(canvasElement.ownerDocument.body).getByRole('dialog', {
+      name: 'Unlock chore management',
+    });
+    const form = dialog.querySelector('form');
+    const header = dialog.querySelector('[data-card-dialog-header]');
+    const body = header?.nextElementSibling;
+    await expect(dialog).toHaveClass('max-sm:!rounded-t-[30px]');
+    await expect(form?.firstElementChild).toBe(header);
+    await expect(header).toHaveClass('border-b');
+    await expect(body).toHaveClass('p-6', 'max-sm:p-4');
+    await expect(within(dialog).getByRole('alert')).toHaveClass('mt-3');
+    await expect(within(dialog).getByRole('button', { name: 'Unlock' }).parentElement).toHaveClass(
+      'border-t',
+      'pt-4'
+    );
+  },
+};
+
+export const ManagementPinEditor: Story = {
+  render: () => <ManagementPinEditorStory />,
+  play: async ({ canvasElement }) => {
+    saveManagementPin.mockClear();
+    const dialog = within(canvasElement.ownerDocument.body).getByRole('dialog', {
+      name: 'Change PIN',
+    });
+    const header = dialog.querySelector('[data-card-dialog-header]');
+    await expect(dialog).toHaveClass('max-sm:!rounded-t-[30px]');
+    await expect(dialog.querySelector('form')?.firstElementChild).toBe(header);
+    await expect(header).toHaveClass('border-b');
+    await expect(within(dialog).queryByLabelText('Management PIN')).toBeNull();
+    await expect(within(dialog).getByLabelText('New management PIN')).toHaveAttribute(
+      'autocomplete',
+      'new-password'
+    );
+    await expect(within(dialog).getByLabelText('New management PIN')).toHaveAttribute(
+      'inputmode',
+      'numeric'
+    );
+    await expect(within(dialog).getByLabelText('New management PIN')).toHaveAttribute(
+      'type',
+      'password'
+    );
+    await userEvent.type(within(dialog).getByLabelText('New management PIN'), '2468');
+    await userEvent.type(within(dialog).getByLabelText('Confirm new management PIN'), '1357');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await expect(within(dialog).getByRole('alert')).toHaveTextContent('The PINs do not match.');
+    await userEvent.clear(within(dialog).getByLabelText('Confirm new management PIN'));
+    await userEvent.type(within(dialog).getByLabelText('Confirm new management PIN'), '2468');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await expect(saveManagementPin).toHaveBeenCalledWith('2468');
   },
 };

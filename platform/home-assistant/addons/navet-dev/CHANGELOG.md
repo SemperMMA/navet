@@ -2,5 +2,5 @@
 
 ## In Progress
 
-- Current Navet Dev scope since `navet-dev-0.13.2-dev.20260823020548`.
-- Refine Security dashboard and responsive card UX (#154)
+- Current Navet Dev scope since `v0.15.1`.
+- Refine chore management and product surfaces

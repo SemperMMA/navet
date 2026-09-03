@@ -1,5 +1,5 @@
 import { getStoryDocsDescription } from '@navet/app/storybook/story-docs';
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 import { Textarea } from './textarea';
 
 const meta = {
@@ -15,7 +15,7 @@ const meta = {
     docs: {
       description: {
         component:
-          'Status: in-progress. Shared multiline field for settings and note-style editing. Keep business-specific formatting and validation outside the primitive.',
+          'Status: in-progress. Shared multiline field with normal-weight, body-sized text for settings and note-style editing. Keep business-specific formatting and validation outside the primitive.',
       },
     },
   },

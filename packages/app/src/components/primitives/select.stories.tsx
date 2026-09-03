@@ -1,5 +1,5 @@
 import { getStoryDocsDescription } from '@navet/app/storybook/story-docs';
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 import { Select } from './select';
 
 const meta = {
@@ -29,7 +29,7 @@ const meta = {
     docs: {
       description: {
         component:
-          'Status: in-progress. Minimal single-select wrapper for ordinary form choices. Use a richer app-specific control when options need previews or domain-specific behavior.',
+          'Status: in-progress. Minimal single-select wrapper for ordinary form choices with normal-weight, body-sized option text. Use a richer app-specific control when options need previews or domain-specific behavior.',
       },
     },
   },

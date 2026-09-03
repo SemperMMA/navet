@@ -5,6 +5,12 @@
 ### shadcn/ui
 This project includes components from [shadcn/ui](https://ui.shadcn.com/) used under [MIT license](https://github.com/shadcn-ui/ui/blob/main/LICENSE.md).
 
+### assistant-ui
+
+The Assist chat surface uses [assistant-ui](https://github.com/assistant-ui/assistant-ui) under the
+MIT License. Its external-store runtime and thread primitives are integrated with Navet's own
+provider-neutral conversation runtime and design-system primitives.
+
 ## Open Source Libraries
 
 Representative libraries used by the current app and public surfaces include:
@@ -17,10 +23,16 @@ Representative libraries used by the current app and public surfaces include:
 - **Lucide React** - Icons
 - **Sonner** - Toast notifications
 - **hls.js** - HLS media playback
-- **Leaflet / React Leaflet** - Map rendering
+- **MapLibre GL JS** - Map rendering under the [BSD 3-Clause license](https://github.com/maplibre/maplibre-gl-js/blob/main/LICENSE.txt)
 - **Workbox** - PWA update and offline support
 - **Astro Starlight** - Public documentation site
 - **Storybook** - Isolated UI documentation and review
+
+## Map Services and Data
+
+- **OpenFreeMap** - Hosts Navet's keyless vector map styles and tiles. See the [OpenFreeMap project and license](https://openfreemap.org/).
+- **OpenMapTiles** - Provides the vector tile schema and cartographic design under BSD and CC BY terms. See the [OpenMapTiles license](https://github.com/openmaptiles/openmaptiles/blob/master/LICENSE.md).
+- **OpenStreetMap** - Provides map data under the [Open Database License](https://www.openstreetmap.org/copyright).
 
 ## Design Inspiration
 

@@ -1,5 +1,63 @@
 # Changelog
 
+## 0.15.5
+
+## New features
+
+- Added per-person point histories and manager controls to add or remove points.
+
+## Improvements and bug fixes
+
+- Future chores and reminders now update when schedules, assignments, or due times change.
+
+## 0.15.4
+
+## New features
+
+- Added Home Assistant Assist with text, voice, selectable pipelines, and access from navigation or dashboard widgets.
+
+## 0.15.3
+
+## Hotfix
+
+- Fixed an Nginx startup error that prevented the Home Assistant add-on from starting.
+
+## 0.15.2
+
+## New features
+
+- Added controls to set, change, or remove chore management PIN protection after onboarding.
+- Added every-four-weeks scheduling for recurring chores.
+
+## Improvements and bug fixes
+
+- Made chore and mission management easier to scan with compact search, filters, and action controls.
+- Refined media browsing with clearer folder rows, artwork, subtitles, and active playback styling.
+- Improved glass-theme legibility across cameras, people, calendar, media, RSS, and vacuum cards.
+
+## 0.15.1
+
+## New features
+
+- Added backup import to first-time chore setup, restoring the household without repeating onboarding.
+
+## Improvements and bug fixes
+
+- Added bug fixes and safeguards that recover chore setup if a management PIN error leaves it unusable.
+
+## 0.15.0
+
+## New features
+
+- Redesigned the Climate dashboard with comfort guidance, room and device grouping, trend charts, and faster mode controls.
+- Expanded shared chores with Home Assistant persistence plus weekday, weekend, and custom interval schedules.
+
+## Improvements and bug fixes
+
+- Improved the Lights dashboard with room controls, whole-home shutoff, and responsive layouts.
+- Upgraded live maps and cameras with clearer locations, automatic framing, and smoother playback recovery.
+- Improved dashboard creation and profile recovery across phones, tablets, and shared displays.
+
 ## 0.14.0
 
 ## New features

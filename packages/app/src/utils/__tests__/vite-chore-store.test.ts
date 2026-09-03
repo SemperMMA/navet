@@ -129,6 +129,19 @@ function experienceActionBody(commandId: string, baseRevision: number) {
   });
 }
 
+function pointAdjustmentActionBody(commandId: string, baseRevision: number) {
+  return JSON.stringify({
+    commandId,
+    baseRevision,
+    action: {
+      type: 'experience_points_adjust',
+      actorParticipantId: 'maya',
+      participantId: 'maya',
+      pointsDelta: -12,
+    },
+  });
+}
+
 function materializeActionBody(commandId: string, baseRevision: number) {
   return JSON.stringify({
     commandId,
@@ -158,6 +171,39 @@ afterEach(() => {
 });
 
 describe('Vite chore workspace store', () => {
+  it('reports authenticated standalone runtime capabilities', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'navet-chore-store-'));
+    tempDirs.push(directory);
+    const handler = createViteChoreStoreRequestHandler({
+      filePath: join(directory, 'chores.json'),
+      resolvePrincipal: () => PRINCIPAL,
+    });
+
+    const capabilities = createResponse();
+    await handler(createRequest('GET', '/capabilities'), capabilities.response);
+
+    expect(capabilities.status).toBe(200);
+    expect(JSON.parse(capabilities.body)).toEqual({
+      contractVersion: 1,
+      schemaVersion: 2,
+      authority: 'standalone',
+      backgroundScheduling: false,
+      backgroundNotifications: false,
+      projectionOwnedByAuthority: false,
+      actionServices: false,
+    });
+
+    const unauthorizedHandler = createViteChoreStoreRequestHandler({
+      filePath: join(directory, 'unauthorized-chores.json'),
+      resolvePrincipal: () => null,
+    });
+    const unauthorized = createResponse();
+    await unauthorizedHandler(createRequest('GET', '/capabilities'), unauthorized.response);
+
+    expect(unauthorized.status).toBe(401);
+    expect(JSON.parse(unauthorized.body)).toEqual({ error: 'Authentication required' });
+  });
+
   it('mirrors revision, conditional reads, conflict, and idempotency behavior', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'navet-chore-store-'));
     tempDirs.push(directory);
@@ -290,6 +336,52 @@ describe('Vite chore workspace store', () => {
         ],
       },
     });
+  });
+
+  it('persists signed manager point adjustments', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'navet-chore-store-'));
+    tempDirs.push(directory);
+    const handler = createViteChoreStoreRequestHandler({
+      filePath: join(directory, 'chores.json'),
+      resolvePrincipal: () => PRINCIPAL,
+    });
+    const participant = createResponse();
+    await handler(
+      createRequest(
+        'POST',
+        '/commands',
+        { 'x-navet-base-revision': '0' },
+        participantActionBody('point-manager', 0)
+      ),
+      participant.response
+    );
+    const adjustment = createResponse();
+    await handler(
+      createRequest(
+        'POST',
+        '/commands',
+        { 'x-navet-base-revision': '1' },
+        pointAdjustmentActionBody('point-adjustment', 1)
+      ),
+      adjustment.response
+    );
+    expect(adjustment.status).toBe(200);
+    expect(JSON.parse(adjustment.body)).toMatchObject({
+      revision: 2,
+      data: {
+        experience: { earnedPointsByParticipant: { maya: -12 } },
+        activity: [
+          { type: 'participant_created' },
+          {
+            type: 'points_adjusted',
+            participantId: 'maya',
+            pointsDelta: -12,
+          },
+        ],
+        outbox: [{ eventType: 'participant_created' }],
+      },
+    });
+    expect(JSON.parse(adjustment.body).data.activity.at(-1)).not.toHaveProperty('reason');
   });
 
   it('applies occurrence actions against authoritative stored state', async () => {
@@ -526,7 +618,7 @@ describe('Vite chore workspace store', () => {
         'POST',
         '/commands',
         { 'x-navet-base-revision': '1' },
-        definitionActionBody('blocked-definition', 1)
+        pointAdjustmentActionBody('blocked-adjustment', 1)
       ),
       blocked.response
     );
@@ -550,11 +642,39 @@ describe('Vite chore workspace store', () => {
           'x-navet-base-revision': '1',
           'x-navet-chore-management-session': managementSession,
         },
-        definitionActionBody('allowed-definition', 1)
+        pointAdjustmentActionBody('allowed-adjustment', 1)
       ),
       allowed.response
     );
     expect(allowed.status).toBe(200);
+    expect(JSON.parse(allowed.body).data.experience.earnedPointsByParticipant).toEqual({
+      maya: -12,
+    });
+
+    const remove = createResponse();
+    await handler(
+      createRequest(
+        'DELETE',
+        '/management/pin',
+        { 'x-navet-chore-management-session': managementSession },
+        JSON.stringify({ actorParticipantId: 'maya' })
+      ),
+      remove.response
+    );
+    expect(remove.status).toBe(200);
+    expect(JSON.parse(remove.body)).toEqual({ pinConfigured: false });
+
+    const unprotected = createResponse();
+    await handler(
+      createRequest(
+        'POST',
+        '/commands',
+        { 'x-navet-base-revision': '2' },
+        experienceActionBody('unprotected-experience', 2)
+      ),
+      unprotected.response
+    );
+    expect(unprotected.status).toBe(200);
   });
 
   it('migrates a persisted schema version 1 workspace before serving it', async () => {

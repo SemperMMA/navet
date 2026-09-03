@@ -9,7 +9,14 @@ import { ChevronDown, SlidersHorizontal } from 'lucide-react';
 import { Children, isValidElement, type ReactNode } from 'react';
 import { ChoreIconPicker } from './chore-icon-picker';
 
-export type ChoreCreationRepeat = ChoreSchedule['frequency'] | 'biweekly' | 'triweekly';
+export type ChoreCreationRepeat =
+  | ChoreSchedule['frequency']
+  | 'weekdays'
+  | 'weekends'
+  | 'biweekly'
+  | 'triweekly'
+  | 'fourweekly'
+  | 'custom';
 export type ChoreCreationSection = 'details' | 'assignment' | 'schedule';
 
 interface ChoreCreationSectionOptionsProps {
@@ -36,7 +43,6 @@ interface ChoreCreationFormGroupsProps {
   interval: number;
   excludedDates: string;
   showTemplates?: boolean;
-  showCustomInterval?: boolean;
   children?: ReactNode;
   onTitleChange: (value: string) => void;
   onIconChange: (value: string) => void;
@@ -127,7 +133,6 @@ export function ChoreCreationFormGroups({
   interval,
   excludedDates,
   showTemplates = true,
-  showCustomInterval = false,
   children,
   onTitleChange,
   onIconChange,
@@ -270,13 +275,28 @@ export function ChoreCreationFormGroups({
           >
             <option value="once">{t('household.schedule.once')}</option>
             <option value="daily">{t('household.schedule.daily')}</option>
+            <option value="weekdays">{t('household.schedule.weekdays')}</option>
+            <option value="weekends">{t('household.schedule.weekends')}</option>
             <option value="weekly">{t('household.schedule.weekly')}</option>
             <option value="biweekly">{t('household.schedule.biweekly')}</option>
             <option value="triweekly">{t('household.schedule.triweekly')}</option>
+            <option value="fourweekly">{t('household.schedule.fourWeekly')}</option>
             <option value="monthly">{t('household.schedule.monthly')}</option>
+            <option value="custom">{t('household.schedule.custom')}</option>
             <option value="after_completion">{t('household.schedule.afterCompletion')}</option>
           </Select>
         </CardDialogSection>
+        {repeat === 'custom' ? (
+          <CardDialogSection className="mb-0" label={t('household.choreDialog.repeatEveryDays')}>
+            <Input
+              aria-label={t('household.choreDialog.repeatEveryDays')}
+              min={2}
+              type="number"
+              value={interval}
+              onChange={(event) => onIntervalChange(Math.max(2, Number(event.target.value)))}
+            />
+          </CardDialogSection>
+        ) : null}
         <CardDialogSection className="mb-0" label={t('household.choreDialog.time')}>
           <Input
             aria-label={t('household.choreDialog.time')}
@@ -312,17 +332,6 @@ export function ChoreCreationFormGroups({
           >
             <Input
               aria-label={t('household.setup.scheduleAfterCompletionLabel')}
-              min={1}
-              type="number"
-              value={interval}
-              onChange={(event) => onIntervalChange(Math.max(1, Number(event.target.value)))}
-            />
-          </CardDialogSection>
-        ) : null}
-        {showCustomInterval && (repeat === 'daily' || repeat === 'weekly') ? (
-          <CardDialogSection className="mb-0" label={t('household.choreDialog.repeatEvery')}>
-            <Input
-              aria-label={t('household.choreDialog.repeatEvery')}
               min={1}
               type="number"
               value={interval}

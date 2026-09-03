@@ -609,20 +609,20 @@ function EnergyInsightsRangeControl({
           onOpenChange={setIsCustomRangeOpen}
           title="Custom range"
           description="Choose the dates used across Energy insights."
+          closeLabel="Close custom range"
           accentColor={accentColor}
           overlayClassName={`animate-in fade-in bg-black/45 backdrop-blur-[2px] sm:hidden ${surface.dialogBackdrop}`}
           contentClassName={`${surface.panel} ${surface.border}`}
-          bodyClassName="px-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
+          bodyClassName="pb-[max(1rem,env(safe-area-inset-bottom))]"
         >
-          <div className="space-y-4">
-            <SheetSurfaceHeader
-              title="Custom range"
-              description="Choose the dates used across Energy insights."
-              closeLabel="Close custom range"
-              onClose={closeCustomRange}
-            />
-            {customRangeForm}
-          </div>
+          <SheetSurfaceHeader
+            title="Custom range"
+            description="Choose the dates used across Energy insights."
+            closeLabel="Close custom range"
+            onClose={closeCustomRange}
+            className={cn('border-b', surface.border)}
+          />
+          <div className="px-4 pt-4">{customRangeForm}</div>
         </SheetSurface>
       ) : null}
     </div>
@@ -668,7 +668,7 @@ function EnergyCustomRangeForm({
             max={draftRange.end || maxDate}
             onChange={(event) => onChange({ ...draftRange, start: event.target.value })}
             className={cn(
-              'h-10 w-full min-w-0 rounded-xl border px-3 text-sm outline-none',
+              'h-10 w-full min-w-0 rounded-xl border px-3 text-sm font-normal outline-none',
               surface.inputBg,
               surface.border,
               surface.textPrimary,
@@ -685,7 +685,7 @@ function EnergyCustomRangeForm({
             max={maxDate}
             onChange={(event) => onChange({ ...draftRange, end: event.target.value })}
             className={cn(
-              'h-10 w-full min-w-0 rounded-xl border px-3 text-sm outline-none',
+              'h-10 w-full min-w-0 rounded-xl border px-3 text-sm font-normal outline-none',
               surface.inputBg,
               surface.border,
               surface.textPrimary,

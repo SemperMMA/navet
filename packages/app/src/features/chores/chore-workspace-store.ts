@@ -1,11 +1,11 @@
 import type { ChoreWorkspaceRecoveryInfo } from '@navet/app/services/chore-workspace.contract';
 import {
   configureChoreManagementPin,
-  loadChoreWorkspace,
+  getChoreWorkspaceTransport,
   recoverChoreWorkspace,
+  removeChoreManagementPin,
   resetChoreWorkspace,
   restoreChoreWorkspace,
-  sendChoreWorkspaceCommand,
   verifyChoreManagementPin,
 } from '@navet/app/services/chore-workspace.service';
 import type { ChoreInterchangeDocument } from '@navet/core/chore-interchange';
@@ -45,6 +45,7 @@ interface ChoreWorkspaceState {
   deleteAll: (actorParticipantId: string) => Promise<boolean>;
   recover: (action: 'restore_backup' | 'reset') => Promise<boolean>;
   configureManagementPin: (actorParticipantId: string, pin: string) => Promise<boolean>;
+  removeManagementPin: (actorParticipantId: string) => Promise<boolean>;
   unlockManagement: (pin: string) => Promise<boolean>;
   lockManagement: () => void;
   reset: () => void;
@@ -84,7 +85,7 @@ export const useChoreWorkspaceStore = create<ChoreWorkspaceState>((set, get) => 
       const current = get();
       if (!current.data) set({ error: null, status: 'loading' });
       try {
-        const result = await loadChoreWorkspace(
+        const result = await getChoreWorkspaceTransport().loadWorkspace(
           options?.force ? undefined : (current.revision ?? undefined)
         );
         if (result.unauthorized) {
@@ -151,7 +152,7 @@ export const useChoreWorkspaceStore = create<ChoreWorkspaceState>((set, get) => 
           }
         })();
         set({ data: optimisticData, error: null, status: 'saving' });
-        const result = await sendChoreWorkspaceCommand({
+        const result = await getChoreWorkspaceTransport().sendCommand({
           action,
           commandId,
           baseRevision: current.revision,
@@ -302,7 +303,11 @@ export const useChoreWorkspaceStore = create<ChoreWorkspaceState>((set, get) => 
       managementSessionToken ?? undefined
     );
     if (!result.unlocked || !result.document) {
-      set({ managementError: result.error ?? 'Management PIN could not be saved' });
+      const managementLocked = relockManagementIfNeeded(result.error);
+      set({
+        managementError: result.error ?? 'Management PIN could not be saved',
+        managementUnlocked: managementLocked ? false : get().managementUnlocked,
+      });
       return false;
     }
     managementSessionToken = result.document.sessionToken;
@@ -310,6 +315,32 @@ export const useChoreWorkspaceStore = create<ChoreWorkspaceState>((set, get) => 
       managementError: null,
       managementPinConfigured: result.document.pinConfigured,
       managementUnlocked: true,
+    });
+    return true;
+  },
+  removeManagementPin: async (actorParticipantId) => {
+    set({ managementError: null });
+    if (!managementSessionToken) {
+      set({
+        managementError: 'Unlock chore management before removing its PIN',
+        managementUnlocked: false,
+      });
+      return false;
+    }
+    const result = await removeChoreManagementPin({ actorParticipantId }, managementSessionToken);
+    if (!result.removed || !result.document) {
+      const managementLocked = relockManagementIfNeeded(result.error);
+      set({
+        managementError: result.error ?? 'Management PIN could not be removed',
+        managementUnlocked: managementLocked ? false : get().managementUnlocked,
+      });
+      return false;
+    }
+    managementSessionToken = null;
+    set({
+      managementError: null,
+      managementPinConfigured: false,
+      managementUnlocked: false,
     });
     return true;
   },

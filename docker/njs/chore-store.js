@@ -46,6 +46,8 @@ const HEADERS = {
 let managementSessions = [];
 let failedManagementAttempts = 0;
 let managementBlockedUntil = 0;
+let lastSchedulerRunAt = null;
+let lastDeliveryError = null;
 
 let fsModule = fs;
 let principalResolver = function (r, options) {
@@ -68,6 +70,8 @@ function resetChoreStoreForTests() {
   managementSessions = [];
   failedManagementAttempts = 0;
   managementBlockedUntil = 0;
+  lastSchedulerRunAt = null;
+  lastDeliveryError = null;
   principalResolver = function (r, options) {
     if (!authStore || typeof authStore.resolveAuthenticatedPrincipal !== 'function') {
       return null;
@@ -101,6 +105,29 @@ function getHeader(r, name) {
     }
   }
   return '';
+}
+
+function getSharedManagementSessions() {
+  if (
+    typeof ngx !== 'undefined' &&
+    ngx &&
+    ngx.shared &&
+    ngx.shared.navet_chore_management_sessions
+  ) {
+    return ngx.shared.navet_chore_management_sessions;
+  }
+  return null;
+}
+
+function clearManagementSession(tenantId) {
+  const sharedSessions = getSharedManagementSessions();
+  if (sharedSessions) {
+    sharedSessions.delete(tenantId);
+    return;
+  }
+  managementSessions = managementSessions.filter(function (session) {
+    return session.tenantId !== tenantId;
+  });
 }
 
 function sendJson(r, statusCode, payload) {
@@ -245,6 +272,9 @@ function isValidActivity(value) {
     (value.definitionId === undefined || typeof value.definitionId === 'string') &&
     (value.participantId === undefined || typeof value.participantId === 'string') &&
     (value.actorParticipantId === undefined || typeof value.actorParticipantId === 'string') &&
+    (value.reason === undefined || typeof value.reason === 'string') &&
+    (value.pointsDelta === undefined ||
+      (Number.isSafeInteger(value.pointsDelta) && Math.abs(value.pointsDelta) <= 10000)) &&
     typeof value.type === 'string' &&
     typeof value.timestamp === 'string' &&
     Number.isFinite(Date.parse(value.timestamp))
@@ -350,6 +380,10 @@ function isOptionalBoundedInteger(value, maximum) {
   return value === undefined || (Number.isSafeInteger(value) && value >= 0 && value <= maximum);
 }
 
+function isOptionalSignedBoundedInteger(value, maximum) {
+  return value === undefined || (Number.isSafeInteger(value) && Math.abs(value) <= maximum);
+}
+
 function isValidChoreExperience(value) {
   if (
     !isRecord(value) ||
@@ -422,7 +456,7 @@ function isValidChoreExperience(value) {
   if (value.earnedPointsByParticipant !== undefined) {
     for (const participantId in value.earnedPointsByParticipant) {
       if (!Object.prototype.hasOwnProperty.call(value.earnedPointsByParticipant, participantId)) continue;
-      if (!isOptionalBoundedInteger(value.earnedPointsByParticipant[participantId], 1000000000)) {
+      if (!isOptionalSignedBoundedInteger(value.earnedPointsByParticipant[participantId], 1000000000)) {
         return false;
       }
     }
@@ -1323,6 +1357,16 @@ function isValidWorkspaceAction(value) {
       isValidChoreExperience(value.experience)
     );
   }
+  if (value.type === 'experience_points_adjust') {
+    return (
+      typeof value.actorParticipantId === 'string' &&
+      typeof value.participantId === 'string' &&
+      Number.isSafeInteger(value.pointsDelta) &&
+      value.pointsDelta !== 0 &&
+      Math.abs(value.pointsDelta) <= 10000 &&
+      (value.reason === undefined || typeof value.reason === 'string')
+    );
+  }
   if (value.type === 'reminder_acknowledge') {
     return typeof value.outboxId === 'string' && typeof value.actorParticipantId === 'string';
   }
@@ -1409,10 +1453,8 @@ function updateExperiencePoints(data, previousOccurrence, nextOccurrence) {
   let nextExperience = experience;
   if (points && typeof participantId === 'string' && (becameFinal || stoppedBeingFinal)) {
     const balances = getExperiencePointBalances(data, experience);
-    balances[participantId] = Math.max(
-      0,
-      (balances[participantId] || 0) + (becameFinal ? points : -points)
-    );
+    balances[participantId] =
+      (balances[participantId] || 0) + (becameFinal ? points : -points);
     nextExperience = Object.assign({}, nextExperience, { earnedPointsByParticipant: balances });
   }
   const awardedMissionIds = (experience.awardedMissionIds || []).slice();
@@ -1628,8 +1670,26 @@ function applyOccurrenceAction(data, commandId, workspaceAction, timestamp) {
     definitionId: definition.id,
     type: activityType,
     actorParticipantId: action.participantId,
+    participantId: action.participantId,
     timestamp,
   };
+  const experience = updateExperiencePoints(data, occurrence, nextOccurrence);
+  const pointRecipientId =
+    occurrence.status !== 'done' && nextOccurrence.status === 'done'
+      ? nextOccurrence.completedBy
+      : occurrence.status === 'done' && nextOccurrence.status !== 'done'
+        ? occurrence.completedBy
+        : undefined;
+  const pointMetadata = isRecord(data.experience) && isRecord(data.experience.presentationByDefinitionId)
+    ? data.experience.presentationByDefinitionId[definition.id]
+    : null;
+  const awardedPoints = isRecord(pointMetadata) && Number.isSafeInteger(pointMetadata.points)
+    ? pointMetadata.points
+    : 0;
+  if (awardedPoints && typeof pointRecipientId === 'string') {
+    activity.participantId = pointRecipientId;
+    activity.pointsDelta = nextOccurrence.status === 'done' ? awardedPoints : -awardedPoints;
+  }
   if (typeof action.reason === 'string' && action.reason.trim().length > 0) {
     activity.reason = action.reason.trim();
   }
@@ -1641,7 +1701,7 @@ function applyOccurrenceAction(data, commandId, workspaceAction, timestamp) {
   nextOccurrences[nextOccurrence.id] = nextOccurrence;
   return Object.assign({}, data, {
     occurrencesById: nextOccurrences,
-    experience: updateExperiencePoints(data, occurrence, nextOccurrence),
+    experience,
     activity: data.activity.concat([activity]).slice(-MAX_ACTIVITY_ITEMS),
     outbox: data.outbox.concat([createOutboxItem(activity)]).slice(-MAX_OUTBOX_ITEMS),
   });
@@ -1950,6 +2010,42 @@ function applyWorkspaceAction(data, commandId, action, timestamp) {
     );
   }
 
+  if (action.type === 'experience_points_adjust') {
+    assertManager(data, action.actorParticipantId);
+    if (!data.participantsById[action.participantId]) {
+      throw new Error('Chore participant is no longer available');
+    }
+    if (
+      !Number.isSafeInteger(action.pointsDelta) ||
+      action.pointsDelta === 0 ||
+      Math.abs(action.pointsDelta) > 10000
+    ) {
+      throw new Error('Point adjustment must be a non-zero whole number up to 10000');
+    }
+    const reason = typeof action.reason === 'string' ? action.reason.trim() || undefined : undefined;
+    const experience = isValidChoreExperience(data.experience)
+      ? data.experience
+      : createEmptyChoreExperience();
+    const balances = getExperiencePointBalances(data, experience);
+    const nextBalance = (balances[action.participantId] || 0) + action.pointsDelta;
+    if (Math.abs(nextBalance) > 1000000000) {
+      throw new Error('Point balance must stay between -1000000000 and 1000000000');
+    }
+    balances[action.participantId] = nextBalance;
+    return appendWorkspaceActivity(
+      Object.assign({}, data, {
+        experience: Object.assign({}, experience, { earnedPointsByParticipant: balances }),
+      }),
+      buildWorkspaceActivity(commandId, timestamp, 'points_adjusted', {
+        actorParticipantId: action.actorParticipantId,
+        participantId: action.participantId,
+        reason,
+        pointsDelta: action.pointsDelta,
+      }),
+      false
+    );
+  }
+
   if (action.type === 'reminder_acknowledge') {
     let reminder = null;
     for (let index = 0; index < data.outbox.length; index += 1) {
@@ -2176,6 +2272,7 @@ function persistDocument(previous, next) {
 
 function applyScheduledState(document) {
   const timestamp = nowIso();
+  lastSchedulerRunAt = timestamp;
   const scheduled = runWorkspaceScheduler(document.data, timestamp);
   if (scheduled.activities.length === 0 && scheduled.outboxItems.length === 0) {
     appendEventHistory(document.data.activity, document.data.historyRetention);
@@ -2189,6 +2286,139 @@ function applyScheduledState(document) {
   persistDocument(document, nextDocument);
   appendEventHistory(nextDocument.data.activity, nextDocument.data.historyRetention);
   return nextDocument;
+}
+
+function sameObjectKeys(left, right) {
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  if (leftKeys.length !== rightKeys.length) return false;
+  for (let index = 0; index < leftKeys.length; index += 1) {
+    if (leftKeys[index] !== rightKeys[index]) return false;
+  }
+  return true;
+}
+
+function materializePeriodicWindow(document, timestamp) {
+  const now = Date.parse(timestamp);
+  const commandId = 'periodic:materialize:' + timestamp;
+  const candidate = applyWorkspaceAction(document.data, commandId, {
+    type: 'materialize_occurrences',
+    rangeStart: new Date(now - 90 * 86400000).toISOString(),
+    rangeEnd: new Date(now + 45 * 86400000).toISOString(),
+  }, timestamp);
+  if (sameObjectKeys(candidate.occurrencesById, document.data.occurrencesById)) {
+    return document;
+  }
+  const next = {
+    contractVersion: CONTRACT_VERSION,
+    revision: document.revision + 1,
+    updatedAt: timestamp,
+    data: candidate,
+  };
+  persistDocument(document, next);
+  appendEventHistory(next.data.activity, next.data.historyRetention);
+  return next;
+}
+
+function pendingHomeAssistantReminders(document, timestamp) {
+  const now = Date.parse(timestamp);
+  return document.data.outbox.filter(function (item) {
+    return (
+      String(item.eventType).indexOf('reminder_') === 0 &&
+      item.destination === 'home_assistant' &&
+      (item.status === 'pending' || item.status === 'failed') &&
+      Date.parse(item.nextAttemptAt) <= now
+    );
+  }).slice(0, 10);
+}
+
+function reminderPayload(document, item) {
+  const occurrence = document.data.occurrencesById[item.occurrenceId] || {};
+  const definition = document.data.definitionsById[occurrence.definitionId] || {};
+  const title = definition.title || 'Navet chore';
+  return {
+    title,
+    message: title,
+    data: {
+      choreOccurrenceId: item.occurrenceId,
+      choreDefinitionId: occurrence.definitionId,
+    },
+  };
+}
+
+async function deliverHomeAssistantReminder(document, item) {
+  const token = process.env.SUPERVISOR_TOKEN || '';
+  if (!token) throw new Error('Home Assistant Supervisor access is unavailable');
+  const target = typeof item.destinationTarget === 'string'
+    ? item.destinationTarget.replace(/^notify\./, '')
+    : '';
+  if (target && !/^[a-z0-9_]{1,128}$/.test(target)) {
+    throw new Error('Home Assistant notification target is invalid');
+  }
+  const servicePath = target
+    ? '/api/services/notify/' + target
+    : '/api/services/persistent_notification/create';
+  const payload = reminderPayload(document, item);
+  if (!target) payload.notification_id = 'navet_chore_' + item.id;
+  const response = await ngx.fetch('http://supervisor/core' + servicePath, {
+    method: 'POST',
+    headers: {
+      Authorization: 'Bearer ' + token,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error('Home Assistant reminder delivery failed with status ' + response.status);
+  }
+}
+
+function recordPeriodicDelivery(item, status, errorMessage) {
+  const current = readDocument();
+  const currentItem = current.data.outbox.find(function (candidate) {
+    return candidate.id === item.id;
+  });
+  if (!currentItem || (currentItem.status !== 'pending' && currentItem.status !== 'failed')) {
+    return;
+  }
+  const timestamp = nowIso();
+  const commandId = 'periodic:delivery:' + item.id + ':' + (currentItem.attempts + 1);
+  const nextData = applyWorkspaceAction(current.data, commandId, {
+    type: 'outbox_delivery_update',
+    outboxId: item.id,
+    status,
+    error: errorMessage,
+  }, timestamp);
+  const next = {
+    contractVersion: CONTRACT_VERSION,
+    revision: current.revision + 1,
+    updatedAt: timestamp,
+    data: nextData,
+  };
+  persistDocument(current, next);
+  appendEventHistory(next.data.activity, next.data.historyRetention);
+}
+
+async function runPeriodic(_session) {
+  const timestamp = nowIso();
+  lastSchedulerRunAt = timestamp;
+  let document = materializePeriodicWindow(readDocument(), timestamp);
+  document = applyScheduledState(document);
+  const reminders = pendingHomeAssistantReminders(document, timestamp);
+  for (let index = 0; index < reminders.length; index += 1) {
+    try {
+      await deliverHomeAssistantReminder(document, reminders[index]);
+      recordPeriodicDelivery(reminders[index], 'delivered');
+      lastDeliveryError = null;
+    } catch (error) {
+      lastDeliveryError = error && error.message ? error.message : 'Reminder delivery failed';
+      try {
+        recordPeriodicDelivery(reminders[index], 'failed', lastDeliveryError);
+      } catch (_recordError) {
+        // The next periodic run reloads the workspace and retries the pending item.
+      }
+    }
+  }
 }
 
 function readDocument() {
@@ -2316,15 +2546,20 @@ function requiresManagementSession(action) {
     'definition_restore',
     'retention_update',
     'experience_update',
+    'experience_points_adjust',
   ].indexOf(action.type) !== -1;
 }
 
 function managementSessionIsValid(r, tenantId) {
+  const token = getHeader(r, HEADERS.managementSession);
+  const sharedSessions = getSharedManagementSessions();
+  if (sharedSessions) {
+    return Boolean(token) && sharedSessions.get(tenantId) === token;
+  }
   const timestamp = Date.now();
   managementSessions = managementSessions.filter(function (session) {
     return session.expiresAt > timestamp;
   });
-  const token = getHeader(r, HEADERS.managementSession);
   return Boolean(token) && managementSessions.some(function (session) {
     return session.token === token && session.tenantId === tenantId;
   });
@@ -2333,10 +2568,15 @@ function managementSessionIsValid(r, tenantId) {
 function sendManagementSession(r, tenantId) {
   const token = createOpaqueId('cms') + createOpaqueId('cms');
   const expiresAt = Date.now() + MANAGEMENT_SESSION_DURATION_MS;
-  managementSessions = managementSessions
-    .filter(function (session) { return session.tenantId !== tenantId; })
-    .concat([{ token, tenantId, expiresAt }])
-    .slice(-20);
+  const sharedSessions = getSharedManagementSessions();
+  if (sharedSessions) {
+    sharedSessions.set(tenantId, token, MANAGEMENT_SESSION_DURATION_MS);
+  } else {
+    managementSessions = managementSessions
+      .filter(function (session) { return session.tenantId !== tenantId; })
+      .concat([{ token, tenantId, expiresAt }])
+      .slice(-20);
+  }
   sendJson(r, 200, {
     pinConfigured: true,
     sessionToken: token,
@@ -2346,6 +2586,7 @@ function sendManagementSession(r, tenantId) {
 
 function publicDocument(document, tenantId) {
   return {
+    contractVersion: CONTRACT_VERSION,
     revision: document.revision,
     updatedAt: document.updatedAt,
     data: document.data,
@@ -2543,10 +2784,43 @@ function configureManagementPin(r, principal) {
     pinHash: hashManagementPin(request.pin, salt),
     updatedAt: nowIso(),
   }, MAX_CHORE_MANAGEMENT_SECURITY_BYTES);
-  managementSessions = managementSessions.filter(function (session) {
-    return session.tenantId !== principal.tenantId;
-  });
+  clearManagementSession(principal.tenantId);
   sendManagementSession(r, principal.tenantId);
+}
+
+function removeManagementPin(r, principal) {
+  let request;
+  try {
+    request = JSON.parse(r.requestText || '');
+  } catch (_error) {
+    sendJson(r, 400, { error: 'Management PIN removal must be valid JSON' });
+    return;
+  }
+  const current = readDocument();
+  const actor = isRecord(request) && typeof request.actorParticipantId === 'string'
+    ? current.data.participantsById[request.actorParticipantId]
+    : null;
+  if (
+    !isRecord(actor) ||
+    actor.pausedAt !== undefined ||
+    !includesValue(actor.capabilities, 'manage')
+  ) {
+    sendJson(r, 403, { error: 'Management PIN removal requires an active manager' });
+    return;
+  }
+  if (!readManagementSecurity(principal.tenantId)) {
+    sendJson(r, 409, { error: 'A management PIN has not been configured' });
+    return;
+  }
+  if (!managementSessionIsValid(r, principal.tenantId)) {
+    sendJson(r, 403, { error: 'Unlock chore management before removing its PIN' });
+    return;
+  }
+  deleteFile(CHORE_MANAGEMENT_SECURITY_PATH);
+  clearManagementSession(principal.tenantId);
+  failedManagementAttempts = 0;
+  managementBlockedUntil = 0;
+  sendJson(r, 200, { pinConfigured: false });
 }
 
 function recoverWorkspace(r, principal) {
@@ -2612,9 +2886,7 @@ function recoverWorkspace(r, principal) {
   deleteFile(CHORE_EVENT_HISTORY_PATH);
   deleteFile(CHORE_LAST_GOOD_WORKSPACE_PATH);
   deleteFile(CHORE_MANAGEMENT_SECURITY_PATH);
-  managementSessions = managementSessions.filter(function (session) {
-    return session.tenantId !== principal.tenantId;
-  });
+  clearManagementSession(principal.tenantId);
   const recovered = {
     contractVersion: CONTRACT_VERSION,
     revision: 0,
@@ -2848,15 +3120,13 @@ function commitAdministration(r, principal, operation) {
   replaceEventHistory(nextEvents);
   if (operation === 'reset') {
     deleteFile(CHORE_MANAGEMENT_SECURITY_PATH);
-    managementSessions = managementSessions.filter(function (session) {
-      return session.tenantId !== principal.tenantId;
-    });
+    clearManagementSession(principal.tenantId);
   }
   applyRevisionHeader(r, next.revision);
   sendJson(r, 200, publicDocument(next, principal.tenantId));
 }
 
-function routeRequest(r, principal) {
+function routeRequest(r, principal, options) {
   if (!authorizeWorkspacePrincipal(principal)) {
     sendJson(r, 403, { error: 'This chore workspace belongs to another installation' });
     return;
@@ -2867,6 +3137,28 @@ function routeRequest(r, principal) {
   }
 
   const uri = typeof r.uri === 'string' ? r.uri.replace(/\/+$/, '') : '';
+  if (uri === '/__navet_chores__/capabilities' && r.method === 'GET') {
+    const document = readDocument();
+    sendJson(r, 200, {
+      contractVersion: CONTRACT_VERSION,
+      schemaVersion: SCHEMA_VERSION,
+      authority: options && options.trustIngressHeaders ? 'navet_addon' : 'standalone',
+      backgroundScheduling: Boolean(options && options.trustIngressHeaders),
+      backgroundNotifications: Boolean(options && options.trustIngressHeaders),
+      projectionOwnedByAuthority: false,
+      actionServices: false,
+      lastSchedulerRunAt,
+      pendingDeliveryCount: document.data.outbox.filter(function (item) {
+        return (
+          String(item.eventType).indexOf('reminder_') === 0 &&
+          item.destination === 'home_assistant' &&
+          (item.status === 'pending' || item.status === 'failed')
+        );
+      }).length,
+      lastDeliveryError,
+    });
+    return;
+  }
   if (uri === '/__navet_chores__/workspace' && r.method === 'GET') {
     loadWorkspace(r, principal);
     return;
@@ -2897,6 +3189,10 @@ function routeRequest(r, principal) {
   }
   if (uri === '/__navet_chores__/management/pin' && r.method === 'POST') {
     configureManagementPin(r, principal);
+    return;
+  }
+  if (uri === '/__navet_chores__/management/pin' && r.method === 'DELETE') {
+    removeManagementPin(r, principal);
     return;
   }
   if (uri === '/__navet_chores__/recovery' && r.method === 'POST') {
@@ -2930,7 +3226,7 @@ function handleWithOptions(r, options) {
     return;
   }
   try {
-    routeRequest(r, principal);
+    routeRequest(r, principal, options);
   } catch (error) {
     if (error && error.code === 'NAVET_CHORE_WRITE_LIMIT') {
       let pinConfigured = false;
@@ -2985,8 +3281,10 @@ export default {
   handle,
   handleIngress,
   isValidChoreWorkspaceData,
+  materializeDefinitionForTests: materializeDefinition,
   resetChoreStoreForTests,
   routeRequest,
+  runPeriodic,
   setChoreStoreFsForTests,
   setChoreStorePrincipalResolverForTests,
 };

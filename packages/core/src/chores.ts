@@ -3,7 +3,7 @@ import {
   type ChoreMission,
   createChoreExperienceState,
   isChoreExperienceState,
-} from './chore-experience';
+} from './chore-experience.ts';
 
 export const CHORE_WORKSPACE_SCHEMA_VERSION = 2 as const;
 
@@ -192,6 +192,7 @@ export type ChoreActivityType =
   | 'workspace_reset'
   | 'retention_updated'
   | 'experience_updated'
+  | 'points_adjusted'
   | 'occurrence_created'
   | 'due'
   | 'overdue'
@@ -215,6 +216,7 @@ export interface ChoreActivity {
   type: ChoreActivityType;
   actorParticipantId?: string;
   reason?: string;
+  pointsDelta?: number;
   previousAssigneeIds?: string[];
   assigneeIds?: string[];
   outboxId?: string;
@@ -350,6 +352,14 @@ export interface ChoreWorkspaceExperienceUpdateAction {
   experience: ChoreExperienceState;
 }
 
+export interface ChoreWorkspaceExperiencePointsAdjustAction {
+  type: 'experience_points_adjust';
+  actorParticipantId: string;
+  participantId: string;
+  pointsDelta: number;
+  reason?: string;
+}
+
 export type ChoreWorkspaceAction =
   | ChoreWorkspaceOccurrenceAction
   | ChoreWorkspaceParticipantCreateAction
@@ -362,7 +372,8 @@ export type ChoreWorkspaceAction =
   | ChoreWorkspaceReminderAcknowledgeAction
   | ChoreWorkspaceOutboxDeliveryAction
   | ChoreWorkspaceRetentionUpdateAction
-  | ChoreWorkspaceExperienceUpdateAction;
+  | ChoreWorkspaceExperienceUpdateAction
+  | ChoreWorkspaceExperiencePointsAdjustAction;
 
 export interface ApplyChoreCommandInput {
   commandId: string;
@@ -529,6 +540,18 @@ function getZonedDateKey(timestamp: string, timeZone: string) {
 
 function scheduleStartDate(schedule: ChoreSchedule) {
   return schedule.frequency === 'once' ? schedule.date : schedule.startDate;
+}
+
+function definitionMaterializationChanged(current: ChoreDefinition, next: ChoreDefinition) {
+  return (
+    JSON.stringify(current.schedule) !== JSON.stringify(next.schedule) ||
+    JSON.stringify(current.assignment) !== JSON.stringify(next.assignment) ||
+    current.dueWindowMinutes !== next.dueWindowMinutes
+  );
+}
+
+function canDiscardForRematerialization(occurrence: ChoreOccurrence) {
+  return occurrence.status === 'available' && occurrence.carriedForwardFrom === undefined;
 }
 
 function isScheduledOnDate(
@@ -914,6 +937,7 @@ function isChoreActivity(value: unknown) {
       'workspace_reset',
       'retention_updated',
       'experience_updated',
+      'points_adjusted',
       'occurrence_created',
       'due',
       'overdue',
@@ -934,6 +958,8 @@ function isChoreActivity(value: unknown) {
     (value.participantId === undefined || typeof value.participantId === 'string') &&
     (value.actorParticipantId === undefined || typeof value.actorParticipantId === 'string') &&
     (value.reason === undefined || typeof value.reason === 'string') &&
+    (value.pointsDelta === undefined ||
+      (Number.isSafeInteger(value.pointsDelta) && Math.abs(Number(value.pointsDelta)) <= 10_000)) &&
     (value.previousAssigneeIds === undefined ||
       (Array.isArray(value.previousAssigneeIds) &&
         value.previousAssigneeIds.every((id) => typeof id === 'string'))) &&
@@ -962,6 +988,7 @@ function isChoreOutboxItem(value: unknown) {
       'workspace_reset',
       'retention_updated',
       'experience_updated',
+      'points_adjusted',
       'occurrence_created',
       'due',
       'overdue',
@@ -1473,6 +1500,7 @@ function buildActivity(input: ApplyChoreCommandInput, type: ChoreActivityType): 
     definitionId: input.definition.id,
     type,
     actorParticipantId: input.command.participantId,
+    participantId: input.command.participantId,
     reason: reason || undefined,
     previousAssigneeIds:
       input.command.type === 'reassign' ? input.occurrence.assigneeIds : undefined,
@@ -1745,6 +1773,8 @@ function buildWorkspaceActivity(input: {
   actorParticipantId?: string;
   participantId?: string;
   definitionId?: string;
+  reason?: string;
+  pointsDelta?: number;
 }): ChoreActivity {
   return {
     id: `activity:${input.commandId}`,
@@ -1754,6 +1784,8 @@ function buildWorkspaceActivity(input: {
     actorParticipantId: input.actorParticipantId,
     participantId: input.participantId,
     definitionId: input.definitionId,
+    reason: input.reason,
+    pointsDelta: input.pointsDelta,
   };
 }
 
@@ -1833,12 +1865,11 @@ export function applyChoreWorkspaceAction(
         ? previousOccurrence.completedBy
         : undefined;
     let nextExperience = experience;
+    const pointsDelta =
+      points && participantId ? (becameFinal ? points : stoppedBeingFinal ? -points : 0) : 0;
     if (points && participantId && (becameFinal || stoppedBeingFinal)) {
       const balances = getChoreExperiencePointBalances(workspace);
-      balances[participantId] = Math.max(
-        0,
-        (balances[participantId] ?? 0) + (becameFinal ? points : -points)
-      );
+      balances[participantId] = (balances[participantId] ?? 0) + pointsDelta;
       nextExperience = { ...nextExperience, earnedPointsByParticipant: balances };
     }
     const awardedMissionIds = [...(experience.awardedMissionIds ?? [])];
@@ -1862,9 +1893,12 @@ export function applyChoreWorkspaceAction(
     ) {
       nextExperience = { ...nextExperience, householdBonusPoints, awardedMissionIds };
     }
-    if (nextExperience === experience) return { activity: result.activity, data: result.data };
+    const activity = pointsDelta
+      ? { ...result.activity, participantId, pointsDelta }
+      : result.activity;
+    if (nextExperience === experience) return { activity, data: result.data };
     return {
-      activity: result.activity,
+      activity,
       data: {
         ...result.data,
         experience: nextExperience,
@@ -1953,6 +1987,31 @@ export function applyChoreWorkspaceAction(
       throw new Error('Chore creation time cannot be changed');
     }
     assertDefinitionReferences(workspace, action.definition);
+    const shouldRematerialize =
+      action.type === 'definition_update' &&
+      current !== undefined &&
+      definitionMaterializationChanged(current, action.definition);
+    const removedOccurrenceIds = new Set<string>();
+    const occurrencesById = shouldRematerialize
+      ? Object.fromEntries(
+          Object.entries(workspace.occurrencesById).filter(([id, occurrence]) => {
+            const shouldRemove =
+              occurrence.definitionId === action.definition.id &&
+              canDiscardForRematerialization(occurrence);
+            if (shouldRemove) removedOccurrenceIds.add(id);
+            return !shouldRemove;
+          })
+        )
+      : workspace.occurrencesById;
+    const outbox =
+      removedOccurrenceIds.size > 0
+        ? workspace.outbox.filter(
+            (item) =>
+              item.status === 'delivered' ||
+              !item.occurrenceId ||
+              !removedOccurrenceIds.has(item.occurrenceId)
+          )
+        : workspace.outbox;
     return {
       activity: buildWorkspaceActivity({
         commandId,
@@ -1963,6 +2022,8 @@ export function applyChoreWorkspaceAction(
       }),
       data: {
         ...workspace,
+        occurrencesById,
+        outbox,
         definitionsById: {
           ...workspace.definitionsById,
           [action.definition.id]: action.definition,
@@ -2061,6 +2122,43 @@ export function applyChoreWorkspaceAction(
         actorParticipantId: action.actorParticipantId,
       }),
       data: { ...workspace, experience: action.experience },
+    };
+  }
+
+  if (action.type === 'experience_points_adjust') {
+    assertWorkspaceManager(workspace, action.actorParticipantId);
+    if (!workspace.participantsById[action.participantId]) {
+      throw new Error('Chore participant is no longer available');
+    }
+    if (
+      !Number.isSafeInteger(action.pointsDelta) ||
+      action.pointsDelta === 0 ||
+      Math.abs(action.pointsDelta) > 10_000
+    ) {
+      throw new Error('Point adjustment must be a non-zero whole number up to 10000');
+    }
+    const reason = action.reason?.trim() || undefined;
+    const experience = workspace.experience ?? createChoreExperienceState();
+    const balances = getChoreExperiencePointBalances(workspace);
+    const nextBalance = (balances[action.participantId] ?? 0) + action.pointsDelta;
+    if (Math.abs(nextBalance) > 1_000_000_000) {
+      throw new Error('Point balance must stay between -1000000000 and 1000000000');
+    }
+    balances[action.participantId] = nextBalance;
+    return {
+      activity: buildWorkspaceActivity({
+        commandId,
+        timestamp,
+        type: 'points_adjusted',
+        actorParticipantId: action.actorParticipantId,
+        participantId: action.participantId,
+        reason,
+        pointsDelta: action.pointsDelta,
+      }),
+      data: {
+        ...workspace,
+        experience: { ...experience, earnedPointsByParticipant: balances },
+      },
     };
   }
 
@@ -2164,6 +2262,7 @@ export function applyChoreWorkspaceAction(
     throw new Error('Chore materialization range is invalid');
   }
   const occurrencesById = { ...workspace.occurrencesById };
+  const scheduledOccurrenceIdsByDefinition = new Map<string, Set<string>>();
   const occurrenceCreatedActivities: ChoreActivity[] = [];
   for (const definition of Object.values(workspace.definitionsById)) {
     const latestCompletedAt = Object.values(occurrencesById)
@@ -2182,6 +2281,10 @@ export function applyChoreWorkspaceAction(
       rangeStart: action.rangeStart,
       rangeEnd: action.rangeEnd,
     });
+    scheduledOccurrenceIdsByDefinition.set(
+      definition.id,
+      new Set(materialized.map((occurrence) => occurrence.id))
+    );
     if (Object.keys(occurrencesById).length + materialized.length > 5000) {
       throw new Error('Too many chore occurrences');
     }
@@ -2224,6 +2327,21 @@ export function applyChoreWorkspaceAction(
       }
     }
   }
+  const removedOccurrenceIds = new Set<string>();
+  for (const [id, occurrence] of Object.entries(occurrencesById)) {
+    const scheduledIds = scheduledOccurrenceIdsByDefinition.get(occurrence.definitionId);
+    const scheduledAt = Date.parse(occurrence.scheduledAt);
+    if (
+      scheduledIds &&
+      scheduledAt >= rangeStart &&
+      scheduledAt <= rangeEnd &&
+      !scheduledIds.has(id) &&
+      canDiscardForRematerialization(occurrence)
+    ) {
+      delete occurrencesById[id];
+      removedOccurrenceIds.add(id);
+    }
+  }
   const retentionBoundary = Date.parse(timestamp) - 90 * 86_400_000;
   for (const occurrence of Object.values(occurrencesById)) {
     if (
@@ -2236,7 +2354,19 @@ export function applyChoreWorkspaceAction(
   return {
     activity: buildWorkspaceActivity({ commandId, timestamp, type: 'workspace_materialized' }),
     additionalActivities: occurrenceCreatedActivities,
-    data: { ...workspace, occurrencesById },
+    data: {
+      ...workspace,
+      occurrencesById,
+      outbox:
+        removedOccurrenceIds.size === 0
+          ? workspace.outbox
+          : workspace.outbox.filter(
+              (item) =>
+                item.status === 'delivered' ||
+                !item.occurrenceId ||
+                !removedOccurrenceIds.has(item.occurrenceId)
+            ),
+    },
   };
 }
 

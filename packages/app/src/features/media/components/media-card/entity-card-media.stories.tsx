@@ -2,7 +2,7 @@ import artworksOriginal from '@assets/reference/media/artworks-original.jpg';
 import { MediaCard } from '@navet/app/features/media';
 import { getStoryDocsDescription } from '@navet/app/storybook/story-docs';
 import { EntityCardStoryFrame, noopCardSizeChange } from '@navet/app/storybook/story-frames';
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 import type { ComponentProps } from 'react';
 import { expect, within } from 'storybook/test';
 
@@ -64,6 +64,22 @@ type Story = StoryObj<typeof meta>;
 
 export const Speaker: Story = {
   args: {
+    size: 'medium',
+  },
+};
+
+export const SpeakerIdle: Story = {
+  args: {
+    id: 'media_player.story_idle_speaker',
+    name: 'Idle Speaker',
+    room: 'Living Room',
+    entityPicture: '',
+    state: 'idle',
+    title: 'Living Room',
+    artist: 'Ready to play',
+    elapsedSeconds: 0,
+    durationSeconds: 0,
+    positionUpdatedAt: undefined,
     size: 'medium',
   },
 };

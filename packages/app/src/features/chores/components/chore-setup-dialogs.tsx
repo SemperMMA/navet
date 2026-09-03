@@ -9,10 +9,12 @@ import {
   BaseCardDialog,
   Button,
   ColorInputSwatch,
+  coverSheetHeaderClassName,
   IconButton,
   Input,
   InteractivePill,
   MessageBar,
+  ModalSurface,
   Select,
   Switch,
   Textarea,
@@ -44,6 +46,14 @@ import { ChoreProfileAppearanceEditor } from './chore-profile-appearance-editor'
 function localDateKey(date = new Date()) {
   const offset = date.getTimezoneOffset() * 60_000;
   return new Date(date.getTime() - offset).toISOString().slice(0, 10);
+}
+
+const ALL_WEEK_DAYS = [0, 1, 2, 3, 4, 5, 6];
+const WEEKDAYS = [1, 2, 3, 4, 5];
+const WEEKENDS = [0, 6];
+
+function hasExactlyDays(days: number[], expected: number[]) {
+  return days.length === expected.length && expected.every((day) => days.includes(day));
 }
 
 function createEntityId(prefix: string, label: string) {
@@ -465,7 +475,6 @@ export function AddPersonDialog({
               <Button
                 type="button"
                 variant="secondary"
-                size="compact"
                 onClick={() => setCurrentStep((step) => step - 1)}
               >
                 {t('login.actions.back')}
@@ -474,14 +483,13 @@ export function AddPersonDialog({
             {currentStep < personSteps.length - 1 ? (
               <Button
                 type="button"
-                size="compact"
                 disabled={!name.trim()}
                 onClick={() => setCurrentStep((step) => step + 1)}
               >
                 {t('dashboard.multiple.create.next')}
               </Button>
             ) : (
-              <Button type="submit" size="compact" loading={saving} disabled={!name.trim()}>
+              <Button type="submit" loading={saving} disabled={!name.trim()}>
                 {participant
                   ? t('household.personDialog.saveChanges')
                   : t('household.personDialog.save')}
@@ -525,22 +533,32 @@ export function ChoreManagementPinDialog({
   };
 
   return (
-    <BaseCardDialog
-      variant="modal"
+    <ModalSurface
       isOpen={isOpen}
       onOpenChange={onOpenChange}
       title={t('household.management.title')}
       description={t('household.management.description')}
-      theme={theme}
-      maxWidth="sm"
-      bodyPadding={false}
+      mobileCoverSheet
+      contentClassName="flex max-h-[85vh] max-w-sm flex-col"
+      bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden"
     >
-      <form onSubmit={unlock}>
-        <CardDialogHeader
-          title={t('household.management.title')}
-          description={t('household.management.description')}
-        />
-        <CardDialogBody className="grid gap-3">
+      <form className="flex min-h-0 flex-1 flex-col" onSubmit={unlock}>
+        <header
+          data-card-dialog-header
+          className={cn(
+            coverSheetHeaderClassName,
+            'shrink-0 border-b max-sm:pt-2 max-sm:pr-4',
+            surface.border
+          )}
+        >
+          <CardDialogHeader
+            title={t('household.management.title')}
+            description={t('household.management.description')}
+            theme={theme}
+            className="mb-0 max-sm:pr-0"
+          />
+        </header>
+        <CardDialogBody className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <CardDialogSection className="mb-0" label={t('household.management.pinLabel')}>
             <Input
               autoFocus
@@ -548,25 +566,162 @@ export function ChoreManagementPinDialog({
               autoComplete="current-password"
               inputMode="numeric"
               maxLength={8}
-              pattern="[0-9]*"
+              pattern="[0-9]{4,8}"
               type="password"
+              enterKeyHint="done"
               value={pin}
               onChange={(event) => setPin(event.target.value.replace(/\D/g, ''))}
             />
           </CardDialogSection>
           {error ? (
-            <p className="text-sm text-red-500" role="alert">
+            <p className="mt-3 text-sm text-red-500" role="alert">
               {error}
             </p>
           ) : null}
+          <CardDialogFooter className={`gap-2 border-t pt-4 ${surface.border}`}>
+            <Button type="submit" loading={unlocking} disabled={!/^\d{4,8}$/.test(pin)}>
+              {t('household.management.unlock')}
+            </Button>
+          </CardDialogFooter>
         </CardDialogBody>
-        <CardDialogFooter className={`border-t ${surface.border}`}>
-          <Button type="submit" loading={unlocking} disabled={!/^\d{4,8}$/.test(pin)}>
-            {t('household.management.unlock')}
-          </Button>
-        </CardDialogFooter>
       </form>
-    </BaseCardDialog>
+    </ModalSurface>
+  );
+}
+
+export function ChoreManagementPinEditorDialog({
+  configured,
+  error,
+  isOpen,
+  onOpenChange,
+  onSave,
+}: {
+  configured: boolean;
+  error?: string | null;
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSave: (pin: string) => Promise<boolean>;
+}) {
+  const { t } = useI18n();
+  const { theme } = useTheme();
+  const surface = getThemeSurfaceTokens(theme);
+  const [pin, setPin] = useState('');
+  const [confirmation, setConfirmation] = useState('');
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setPin('');
+    setConfirmation('');
+    setValidationError(null);
+  }, [isOpen]);
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!/^\d{4,8}$/.test(pin)) {
+      setValidationError(t('household.setup.pinLengthError'));
+      return;
+    }
+    if (pin !== confirmation) {
+      setValidationError(t('household.setup.pinMismatchError'));
+      return;
+    }
+
+    setValidationError(null);
+    setSaving(true);
+    const saved = await onSave(pin);
+    setSaving(false);
+    if (saved) onOpenChange(false);
+  };
+
+  const title = configured ? t('household.management.changePin') : t('household.management.setPin');
+  const pinLabel = configured
+    ? t('household.management.newPinLabel')
+    : t('household.management.pinLabel');
+  const confirmationLabel = configured
+    ? t('household.management.confirmNewPinLabel')
+    : t('household.setup.pinConfirmLabel');
+
+  return (
+    <ModalSurface
+      isOpen={isOpen}
+      onOpenChange={onOpenChange}
+      title={title}
+      description={t('household.setup.securityDescription')}
+      mobileCoverSheet
+      contentClassName="flex max-h-[85vh] max-w-sm flex-col"
+      bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden"
+    >
+      <form className="flex min-h-0 flex-1 flex-col" onSubmit={save}>
+        <header
+          data-card-dialog-header
+          className={cn(
+            coverSheetHeaderClassName,
+            'shrink-0 border-b max-sm:pt-2 max-sm:pr-4',
+            surface.border
+          )}
+        >
+          <CardDialogHeader
+            title={title}
+            description={t('household.setup.securityDescription')}
+            theme={theme}
+            className="mb-0 max-sm:pr-0"
+          />
+        </header>
+        <CardDialogBody className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <div className="grid gap-4">
+            <CardDialogSection className="mb-0" label={pinLabel}>
+              <Input
+                autoFocus
+                aria-label={pinLabel}
+                autoComplete="new-password"
+                enterKeyHint="next"
+                inputMode="numeric"
+                maxLength={8}
+                pattern="[0-9]{4,8}"
+                type="password"
+                value={pin}
+                onChange={(event) => {
+                  setPin(event.target.value.replace(/\D/g, ''));
+                  setValidationError(null);
+                }}
+              />
+            </CardDialogSection>
+            <CardDialogSection className="mb-0" label={confirmationLabel}>
+              <Input
+                aria-label={confirmationLabel}
+                autoComplete="new-password"
+                enterKeyHint="done"
+                inputMode="numeric"
+                maxLength={8}
+                pattern="[0-9]{4,8}"
+                type="password"
+                value={confirmation}
+                onChange={(event) => {
+                  setConfirmation(event.target.value.replace(/\D/g, ''));
+                  setValidationError(null);
+                }}
+              />
+            </CardDialogSection>
+          </div>
+          {validationError || error ? (
+            <p className="mt-3 text-sm text-red-500" role="alert">
+              {validationError ?? error}
+            </p>
+          ) : null}
+          <CardDialogFooter className={`gap-2 border-t pt-4 ${surface.border}`}>
+            <Button
+              type="submit"
+              loading={saving}
+              disabled={!/^\d{4,8}$/.test(pin) || !/^\d{4,8}$/.test(confirmation)}
+            >
+              {t('common.save')}
+            </Button>
+          </CardDialogFooter>
+        </CardDialogBody>
+      </form>
+    </ModalSurface>
   );
 }
 
@@ -604,7 +759,7 @@ export function AddChoreDialog({
   const [scheduleStartDate, setScheduleStartDate] = useState(localDateKey());
   const [scheduleEndDate, setScheduleEndDate] = useState('');
   const [scheduleInterval, setScheduleInterval] = useState(1);
-  const [weeklyDays, setWeeklyDays] = useState<number[]>([new Date().getDay()]);
+  const [weeklyDays, setWeeklyDays] = useState<number[]>(ALL_WEEK_DAYS);
   const [dayOfMonth, setDayOfMonth] = useState(new Date().getDate());
   const [extraTimes, setExtraTimes] = useState('');
   const [excludedDates, setExcludedDates] = useState('');
@@ -670,9 +825,11 @@ export function AddChoreDialog({
             : 1
       );
       setWeeklyDays(
-        definition?.schedule.frequency === 'daily' || definition?.schedule.frequency === 'weekly'
-          ? (definition.schedule.daysOfWeek ?? [new Date().getDay()])
-          : [new Date().getDay()]
+        definition?.schedule.frequency === 'daily'
+          ? (definition.schedule.daysOfWeek ?? ALL_WEEK_DAYS)
+          : definition?.schedule.frequency === 'weekly'
+            ? definition.schedule.daysOfWeek
+            : ALL_WEEK_DAYS
       );
       setDayOfMonth(
         definition?.schedule.frequency === 'monthly'
@@ -720,7 +877,7 @@ export function AddChoreDialog({
       setScheduleStartDate(localDateKey());
       setScheduleEndDate('');
       setScheduleInterval(1);
-      setWeeklyDays([new Date().getDay()]);
+      setWeeklyDays(ALL_WEEK_DAYS);
       setDayOfMonth(new Date().getDate());
       setExtraTimes('');
       setExcludedDates('');
@@ -769,6 +926,16 @@ export function AddChoreDialog({
       times:
         extraScheduleTimes.length > 0 ? [...new Set([time, ...extraScheduleTimes])] : undefined,
     };
+    const selectedRepeat =
+      frequency === 'daily' && scheduleInterval === 1 && hasExactlyDays(weeklyDays, WEEKDAYS)
+        ? 'weekdays'
+        : frequency === 'daily' && scheduleInterval === 1 && hasExactlyDays(weeklyDays, WEEKENDS)
+          ? 'weekends'
+          : frequency === 'daily' &&
+              scheduleInterval > 1 &&
+              hasExactlyDays(weeklyDays, ALL_WEEK_DAYS)
+            ? 'custom'
+            : frequency;
     const schedule: ChoreSchedule =
       frequency === 'once'
         ? { frequency, date: startDate, time, timeZone }
@@ -807,8 +974,18 @@ export function AddChoreDialog({
                   startDate,
                   time,
                   timeZone,
-                  daysOfWeek: weeklyDays.length === 7 ? undefined : weeklyDays,
-                  intervalDays: Math.max(1, scheduleInterval),
+                  daysOfWeek:
+                    selectedRepeat === 'weekdays'
+                      ? WEEKDAYS
+                      : selectedRepeat === 'weekends'
+                        ? WEEKENDS
+                        : selectedRepeat === 'custom' || weeklyDays.length === 7
+                          ? undefined
+                          : weeklyDays,
+                  intervalDays:
+                    selectedRepeat === 'custom'
+                      ? Math.max(2, scheduleInterval)
+                      : Math.max(1, scheduleInterval),
                   ...scheduleOptions,
                 };
     const participantIds =
@@ -907,20 +1084,44 @@ export function AddChoreDialog({
     title.trim().length > 0 &&
     completers.length > 0 &&
     (assignmentMode !== 'person' || participantId.length > 0);
-  const repeatValue =
-    frequency === 'weekly' && scheduleInterval === 2
-      ? 'biweekly'
-      : frequency === 'weekly' && scheduleInterval === 3
-        ? 'triweekly'
-        : frequency;
+  const repeatValue: ChoreCreationRepeat =
+    frequency === 'daily' && scheduleInterval === 1 && hasExactlyDays(weeklyDays, WEEKDAYS)
+      ? 'weekdays'
+      : frequency === 'daily' && scheduleInterval === 1 && hasExactlyDays(weeklyDays, WEEKENDS)
+        ? 'weekends'
+        : frequency === 'daily' && scheduleInterval > 1 && hasExactlyDays(weeklyDays, ALL_WEEK_DAYS)
+          ? 'custom'
+          : frequency === 'weekly' && scheduleInterval === 2
+            ? 'biweekly'
+            : frequency === 'weekly' && scheduleInterval === 3
+              ? 'triweekly'
+              : frequency === 'weekly' && scheduleInterval === 4
+                ? 'fourweekly'
+                : frequency;
 
   const selectRepeat = (value: ChoreCreationRepeat) => {
-    if (value === 'biweekly' || value === 'triweekly') {
-      setFrequency('weekly');
-      setScheduleInterval(value === 'biweekly' ? 2 : 3);
+    if (value === 'weekdays' || value === 'weekends' || value === 'custom') {
+      setFrequency('daily');
+      setWeeklyDays(
+        value === 'weekdays' ? WEEKDAYS : value === 'weekends' ? WEEKENDS : ALL_WEEK_DAYS
+      );
+      setScheduleInterval(value === 'custom' ? 2 : 1);
       return;
     }
 
+    if (value === 'biweekly' || value === 'triweekly' || value === 'fourweekly') {
+      if (frequency !== 'weekly') {
+        setWeeklyDays([new Date(`${scheduleStartDate || localDateKey()}T12:00:00`).getDay()]);
+      }
+      setFrequency('weekly');
+      setScheduleInterval(value === 'biweekly' ? 2 : value === 'triweekly' ? 3 : 4);
+      return;
+    }
+
+    if (value === 'daily') setWeeklyDays(ALL_WEEK_DAYS);
+    if (value === 'weekly' && frequency !== 'weekly') {
+      setWeeklyDays([new Date(`${scheduleStartDate || localDateKey()}T12:00:00`).getDay()]);
+    }
     setFrequency(value);
     setScheduleInterval(1);
   };
@@ -933,15 +1134,23 @@ export function AddChoreDialog({
       ? t('household.schedule.once')
       : repeatValue === 'daily'
         ? t('household.schedule.daily')
-        : repeatValue === 'weekly'
-          ? t('household.schedule.weekly')
-          : repeatValue === 'biweekly'
-            ? t('household.schedule.biweekly')
-            : repeatValue === 'triweekly'
-              ? t('household.schedule.triweekly')
-              : repeatValue === 'monthly'
-                ? t('household.schedule.monthly')
-                : t('household.schedule.afterCompletion');
+        : repeatValue === 'weekdays'
+          ? t('household.schedule.weekdays')
+          : repeatValue === 'weekends'
+            ? t('household.schedule.weekends')
+            : repeatValue === 'weekly'
+              ? t('household.schedule.weekly')
+              : repeatValue === 'biweekly'
+                ? t('household.schedule.biweekly')
+                : repeatValue === 'triweekly'
+                  ? t('household.schedule.triweekly')
+                  : repeatValue === 'fourweekly'
+                    ? t('household.schedule.fourWeekly')
+                    : repeatValue === 'monthly'
+                      ? t('household.schedule.monthly')
+                      : repeatValue === 'custom'
+                        ? t('household.schedule.custom')
+                        : t('household.schedule.afterCompletion');
 
   return (
     <BaseCardDialog
@@ -953,16 +1162,21 @@ export function AddChoreDialog({
       theme={theme}
       contentClassName={cn(
         'md:left-1/2 md:right-auto md:w-[calc(100%-4rem)] md:max-w-[900px] md:-translate-x-1/2',
+        'max-sm:!overflow-y-auto max-sm:overscroll-contain max-sm:touch-pan-y',
         'backdrop-blur-2xl',
         surface.shellPanel,
         surface.border
       )}
       shellBodyClassName="h-full min-h-0"
     >
-      <form className="flex h-full min-h-0 flex-col" onSubmit={submit}>
+      <form
+        className="flex h-full min-h-0 flex-col max-sm:h-auto max-sm:min-h-full"
+        onSubmit={submit}
+      >
         <header
           className={cn(
-            'flex items-start justify-between gap-4 border-b px-4 py-4 sm:px-6',
+            coverSheetHeaderClassName,
+            'flex items-start justify-between gap-3 border-b sm:gap-4 sm:px-6',
             surface.border
           )}
         >
@@ -975,6 +1189,7 @@ export function AddChoreDialog({
             </p>
           </div>
           <IconButton
+            data-cover-sheet-inline-dismiss
             variant="ghost"
             label={t('common.close')}
             icon={<X aria-hidden="true" className={navetIconSizeTokens.sm} />}
@@ -983,7 +1198,7 @@ export function AddChoreDialog({
           />
         </header>
 
-        <div className="scrollbar-hide min-h-0 flex-1 overflow-y-auto overscroll-contain touch-pan-y">
+        <div className="scrollbar-hide min-h-0 flex-1 overflow-y-auto overscroll-contain touch-pan-y max-sm:flex-none max-sm:overflow-visible max-sm:overscroll-auto max-sm:touch-auto">
           <main className="mx-auto w-full max-w-[50rem] px-4 py-6 sm:px-7 sm:py-8">
             <div
               className={cn(
@@ -1050,7 +1265,6 @@ export function AddChoreDialog({
               interval={scheduleInterval}
               excludedDates={excludedDates}
               showTemplates={!definition}
-              showCustomInterval
               onTitleChange={setTitle}
               onIconChange={setChoreIcon}
               onRoomChange={setRoomLabel}
@@ -1214,40 +1428,6 @@ export function AddChoreDialog({
                 ) : null}
               </ChoreCreationSectionOptions>
               <ChoreCreationSectionOptions section="schedule">
-                {frequency === 'daily' || frequency === 'weekly' ? (
-                  <CardDialogSection
-                    className="mb-0 sm:col-span-2"
-                    label={t('household.choreDialog.weekdays')}
-                  >
-                    <div className="flex flex-wrap gap-1.5">
-                      {Array.from({ length: 7 }, (_, day) => {
-                        const selected = weeklyDays.includes(day);
-                        const label = new Intl.DateTimeFormat(undefined, {
-                          weekday: 'short',
-                        }).format(new Date(Date.UTC(2026, 7, 2 + day)));
-                        return (
-                          <Button
-                            key={day}
-                            type="button"
-                            size="compact"
-                            variant={selected ? 'secondary' : 'ghost'}
-                            className="min-h-9 min-w-9 px-2"
-                            aria-pressed={selected}
-                            onClick={() =>
-                              setWeeklyDays((current) =>
-                                selected
-                                  ? current.filter((candidate) => candidate !== day)
-                                  : [...current, day].sort()
-                              )
-                            }
-                          >
-                            {label}
-                          </Button>
-                        );
-                      })}
-                    </div>
-                  </CardDialogSection>
-                ) : null}
                 <CardDialogSection className="mb-0" label={t('household.choreDialog.dueWindow')}>
                   <Input
                     aria-label={t('household.choreDialog.dueWindow')}

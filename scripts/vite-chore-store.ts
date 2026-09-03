@@ -6,22 +6,23 @@ import type {
   ChoreWorkspaceAction,
   ChoreActivity,
   ChoreWorkspaceData,
-} from '../packages/core/src/chores'
+} from '../packages/core/src/chores.ts'
 import {
   applyChoreWorkspaceAction,
+  CHORE_WORKSPACE_SCHEMA_VERSION,
   createChoreOutboxItem,
   createEmptyChoreWorkspace,
   DEFAULT_CHORE_HISTORY_RETENTION,
   migrateChoreWorkspaceData,
   runChoreWorkspaceScheduler,
-} from '../packages/core/src/chores'
-import { applyChoreHistoryRetention } from '../packages/core/src/chore-insights'
-import { isChoreExperienceState } from '../packages/core/src/chore-experience'
-import { createChoreInterchangeDocument } from '../packages/core/src/chore-interchange'
+} from '../packages/core/src/chores.ts'
+import { applyChoreHistoryRetention } from '../packages/core/src/chore-insights.ts'
+import { isChoreExperienceState } from '../packages/core/src/chore-experience.ts'
+import { createChoreInterchangeDocument } from '../packages/core/src/chore-interchange.ts'
 import {
   mergeChoreInterchange,
   parseChoreInterchangeDocument,
-} from '../packages/core/src/chore-interchange'
+} from '../packages/core/src/chore-interchange.ts'
 import {
   CHORE_AUTOMATION_EVENT_TYPES,
   CHORE_WORKSPACE_HEADERS,
@@ -29,9 +30,9 @@ import {
   type ChoreWorkspaceDocument,
   type ChoreWorkspaceResetRequest,
   type ChoreWorkspaceRestoreRequest,
-} from '../packages/app/src/services/chore-workspace.contract'
-import type { ViteDashboardProfilePrincipal } from './vite-dashboard-profile-store'
-import { isViteStrictSameOriginMutation } from './vite-provider-session-store'
+} from '../packages/app/src/services/chore-workspace.contract.ts'
+import type { ViteDashboardProfilePrincipal } from './vite-dashboard-profile-store.ts'
+import { isViteStrictSameOriginMutation } from './vite-provider-session-store.ts'
 
 const CONTRACT_VERSION = 1
 const MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
@@ -140,6 +141,16 @@ function isChoreWorkspaceAction(value: unknown): value is ChoreWorkspaceAction {
       isChoreExperienceState(value.experience)
     )
   }
+  if (value.type === 'experience_points_adjust') {
+    return (
+      typeof value.actorParticipantId === 'string' &&
+      typeof value.participantId === 'string' &&
+      Number.isSafeInteger(value.pointsDelta) &&
+      value.pointsDelta !== 0 &&
+      Math.abs(Number(value.pointsDelta)) <= 10_000 &&
+      (value.reason === undefined || typeof value.reason === 'string')
+    )
+  }
   if (value.type === 'reminder_acknowledge') {
     return typeof value.outboxId === 'string' && typeof value.actorParticipantId === 'string'
   }
@@ -207,6 +218,7 @@ function requiresManagementSession(action: ChoreWorkspaceAction): boolean {
     'definition_restore',
     'retention_update',
     'experience_update',
+    'experience_points_adjust',
   ].includes(action.type)
 }
 
@@ -553,6 +565,19 @@ export function createViteChoreStoreRequestHandler(options: {
       }
       const pinConfigured = Boolean(managementSecurity)
 
+      if (route === '/capabilities' && method === 'GET') {
+        sendJson(res, 200, {
+          contractVersion: CONTRACT_VERSION,
+          schemaVersion: CHORE_WORKSPACE_SCHEMA_VERSION,
+          authority: 'standalone',
+          backgroundScheduling: false,
+          backgroundNotifications: false,
+          projectionOwnedByAuthority: false,
+          actionServices: false,
+        })
+        return
+      }
+
       if (route === '/recovery' && method === 'POST') {
         let request: Record<string, unknown>
         try {
@@ -818,6 +843,40 @@ export function createViteChoreStoreRequestHandler(options: {
         return
       }
 
+      if (route === '/management/pin' && method === 'DELETE') {
+        let request: Record<string, unknown>
+        try {
+          request = JSON.parse(await readBody(req)) as Record<string, unknown>
+        } catch {
+          sendJson(res, 400, { error: 'Management PIN removal must be valid JSON' })
+          return
+        }
+        const actor =
+          typeof request.actorParticipantId === 'string'
+            ? document.data.participantsById[request.actorParticipantId]
+            : undefined
+        if (!actor?.capabilities.includes('manage') || actor.pausedAt) {
+          sendJson(res, 403, { error: 'Management PIN removal requires an active manager' })
+          return
+        }
+        if (!managementSecurity) {
+          sendJson(res, 409, { error: 'A management PIN has not been configured' })
+          return
+        }
+        if (!managementSessionIsValid(req, principal.tenantId)) {
+          sendJson(res, 403, { error: 'Unlock chore management before removing its PIN' })
+          return
+        }
+        unlinkSync(managementSecurityPath)
+        managementSessions = managementSessions.filter(
+          (session) => session.tenantId !== principal.tenantId
+        )
+        failedManagementAttempts = 0
+        managementBlockedUntil = 0
+        sendJson(res, 200, { pinConfigured: false })
+        return
+      }
+
       if ((route === '/restore' || route === '/reset') && method === 'POST') {
         let request: Partial<ChoreWorkspaceRestoreRequest & ChoreWorkspaceResetRequest> &
           Record<string, unknown>
@@ -1034,7 +1093,9 @@ export function createViteChoreStoreRequestHandler(options: {
                 ? result.data.outbox
                 : [
                     ...result.data.outbox,
-                    ...activities.map(createChoreOutboxItem),
+                    ...activities
+                      .filter((activity) => activity.type !== 'points_adjusted')
+                      .map(createChoreOutboxItem),
                   ].slice(-MAX_OUTBOX_ITEMS),
           }
         } catch (error) {

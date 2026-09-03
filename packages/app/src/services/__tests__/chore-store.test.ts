@@ -1,4 +1,5 @@
 import choreStore from '@docker/njs/chore-store.js';
+import conformanceVectors from '@navet/core/chore-conformance-vectors.json';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const WORKSPACE_PATH = '/data/navet-dashboard-workspace.json';
@@ -72,6 +73,19 @@ function createMockFs() {
     }),
     getFile: (path: string) => files.get(path),
   };
+}
+
+function createMockSharedDict() {
+  const values = new Map<string, string>();
+  const dictionary = {
+    delete: vi.fn((key: string) => values.delete(key)),
+    get: vi.fn((key: string) => values.get(key)),
+    set: vi.fn((key: string, value: string) => {
+      values.set(key, value);
+      return dictionary;
+    }),
+  };
+  return dictionary;
 }
 
 function seededData(commandId: string) {
@@ -180,11 +194,121 @@ function seedOccurrenceWorkspace() {
 
 afterEach(() => {
   choreStore.resetChoreStoreForTests();
+  delete process.env.SUPERVISOR_TOKEN;
+  vi.unstubAllGlobals();
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
 describe('NJS chore workspace store', () => {
+  for (const vector of conformanceVectors.materialization) {
+    it(`matches shared conformance: ${vector.name}`, () => {
+      const participantsById = Object.fromEntries(
+        vector.participants.map((participant) => [participant.id, participant])
+      );
+      const occurrences = choreStore.materializeDefinitionForTests(
+        vector.definition,
+        participantsById,
+        vector.rangeStart,
+        vector.rangeEnd,
+        {},
+        undefined
+      );
+      expect(
+        occurrences.map((occurrence: { scheduledAt: string; assigneeIds: string[] }) => ({
+          scheduledAt: occurrence.scheduledAt,
+          assigneeIds: occurrence.assigneeIds,
+        }))
+      ).toEqual(vector.expected);
+    });
+  }
+
+  it('reports runtime capabilities without enabling browser background work in standalone mode', () => {
+    choreStore.setChoreStoreFsForTests(createMockFs());
+    choreStore.setChoreStorePrincipalResolverForTests(() => PRINCIPAL);
+
+    const standalone = createRequest({ uri: '/__navet_chores__/capabilities' });
+    choreStore.handle(standalone);
+    expect(parseResponse(standalone)).toMatchObject({
+      contractVersion: 1,
+      schemaVersion: 2,
+      authority: 'standalone',
+      backgroundScheduling: false,
+      backgroundNotifications: false,
+    });
+
+    const ingress = createRequest({ uri: '/__navet_chores__/capabilities' });
+    choreStore.handleIngress(ingress);
+    expect(parseResponse(ingress)).toMatchObject({
+      authority: 'navet_addon',
+      backgroundScheduling: true,
+      backgroundNotifications: true,
+    });
+  });
+
+  it('periodically materializes and delivers reminders without losing concurrent UI writes', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-09T08:00:00.000Z'));
+    const mockFs = createMockFs();
+    choreStore.setChoreStoreFsForTests(mockFs);
+    choreStore.setChoreStorePrincipalResolverForTests(() => PRINCIPAL);
+    choreStore.handle(
+      createActionRequest('periodic-manager', 0, {
+        type: 'participant_create',
+        participant: {
+          ...managerParticipant(),
+          reminderPreferences: {
+            enabled: true,
+            destination: { type: 'home_assistant', target: 'mobile_app_phone' },
+          },
+        },
+      })
+    );
+    const definition = seededData('periodic').definitionsById.dishes;
+    choreStore.handle(
+      createActionRequest('periodic-definition', 1, {
+        type: 'definition_create',
+        actorParticipantId: 'maya',
+        definition: {
+          ...definition,
+          reminderPolicy: { enabled: true, beforeDueMinutes: [], atDue: true },
+        },
+      })
+    );
+
+    await choreStore.runPeriodic({});
+    expect(JSON.parse(mockFs.getFile(CHORE_PATH) ?? '{}').data.occurrencesById).toHaveProperty(
+      OCCURRENCE_ID
+    );
+
+    vi.setSystemTime(new Date('2026-08-10T12:00:00.000Z'));
+    process.env.SUPERVISOR_TOKEN = 'supervisor-token';
+    const fetchMock = vi.fn(async () => {
+      const current = JSON.parse(mockFs.getFile(CHORE_PATH) ?? '{}');
+      choreStore.handle(
+        createActionRequest('concurrent-sofia', current.revision, {
+          type: 'participant_create',
+          actorParticipantId: 'maya',
+          participant: managerParticipant('sofia'),
+        })
+      );
+      return { ok: true, status: 200 };
+    });
+    vi.stubGlobal('ngx', { fetch: fetchMock });
+
+    await choreStore.runPeriodic({});
+
+    const stored = JSON.parse(mockFs.getFile(CHORE_PATH) ?? '{}');
+    expect(stored.data.participantsById).toHaveProperty('sofia');
+    expect(
+      stored.data.outbox.find((item: { eventType: string }) => item.eventType === 'reminder_due')
+    ).toMatchObject({ status: 'delivered', attempts: 1 });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://supervisor/core/api/services/notify/mobile_app_phone',
+      expect.objectContaining({ method: 'POST' })
+    );
+  });
+
   it('resolves daylight-saving offsets without unavailable packaged APIs', () => {
     expect(
       choreStore.getNjsTimeZoneOffsetMinutesForTests(
@@ -368,9 +492,25 @@ describe('NJS chore workspace store', () => {
 
     seedOccurrenceWorkspace();
 
+    const experience = createActionRequest('experience', 3, {
+      type: 'experience_update',
+      actorParticipantId: 'maya',
+      experience: {
+        version: 1,
+        gamificationMode: 'light',
+        presentationByDefinitionId: { dishes: { points: 15 } },
+        missionsById: {},
+        rewardGoalsById: {},
+        earnedPointsByParticipant: {},
+        householdBonusPoints: 0,
+        awardedMissionIds: [],
+      },
+    });
+    choreStore.handle(experience);
+
     const actionBody = JSON.stringify({
       commandId: 'complete',
-      baseRevision: 3,
+      baseRevision: 4,
       action: {
         type: 'occurrence_action',
         occurrenceId: OCCURRENCE_ID,
@@ -380,14 +520,14 @@ describe('NJS chore workspace store', () => {
     const complete = createRequest({
       method: 'POST',
       uri: '/__navet_chores__/commands',
-      headersIn: { 'X-Navet-Base-Revision': '3' },
+      headersIn: { 'X-Navet-Base-Revision': '4' },
       requestText: actionBody,
     });
     choreStore.handle(complete);
 
     const completedDocument = parseResponse(complete);
     expect(complete.return).toHaveBeenCalledWith(200, expect.any(String));
-    expect(completedDocument.revision).toBe(4);
+    expect(completedDocument.revision).toBe(5);
     expect(completedDocument.data.occurrencesById[OCCURRENCE_ID]).toMatchObject({
       status: 'done',
       completedBy: 'maya',
@@ -396,7 +536,10 @@ describe('NJS chore workspace store', () => {
       commandId: 'complete',
       type: 'completed',
       actorParticipantId: 'maya',
+      participantId: 'maya',
+      pointsDelta: 15,
     });
+    expect(completedDocument.data.experience.earnedPointsByParticipant).toEqual({ maya: 15 });
     expect(completedDocument.data.outbox.at(-1)).toMatchObject({
       activityId: 'activity:complete',
       eventType: 'completed',
@@ -406,11 +549,24 @@ describe('NJS chore workspace store', () => {
     const retry = createRequest({
       method: 'POST',
       uri: '/__navet_chores__/commands',
-      headersIn: { 'X-Navet-Base-Revision': '3' },
+      headersIn: { 'X-Navet-Base-Revision': '4' },
       requestText: actionBody,
     });
     choreStore.handle(retry);
-    expect(parseResponse(retry).revision).toBe(4);
+    expect(parseResponse(retry).revision).toBe(5);
+
+    const reopen = createActionRequest('reopen', 5, {
+      type: 'occurrence_action',
+      occurrenceId: OCCURRENCE_ID,
+      action: { type: 'reopen', participantId: 'maya', reason: 'Redo' },
+    });
+    choreStore.handle(reopen);
+    expect(parseResponse(reopen).data.activity.at(-1)).toMatchObject({
+      type: 'reopened',
+      participantId: 'maya',
+      pointsDelta: -15,
+    });
+    expect(parseResponse(reopen).data.experience.earnedPointsByParticipant).toEqual({ maya: 0 });
   });
 
   it('records a missed occurrence as completed late', () => {
@@ -859,7 +1015,50 @@ describe('NJS chore workspace store', () => {
     });
   });
 
-  it('requires a verified management PIN for chore and profile changes', () => {
+  it('persists signed point adjustments and their immutable audit details', () => {
+    const mockFs = createMockFs();
+    choreStore.setChoreStoreFsForTests(mockFs);
+    choreStore.setChoreStorePrincipalResolverForTests(() => PRINCIPAL);
+    choreStore.handle(
+      createActionRequest('points-manager', 0, {
+        type: 'participant_create',
+        participant: managerParticipant(),
+      })
+    );
+    const adjustment = createActionRequest('points-adjustment', 1, {
+      type: 'experience_points_adjust',
+      actorParticipantId: 'maya',
+      participantId: 'maya',
+      pointsDelta: -25,
+      reason: 'Replacement cost',
+    });
+    choreStore.handle(adjustment);
+
+    expect(adjustment.return).toHaveBeenCalledWith(200, expect.any(String));
+    expect(parseResponse(adjustment).data.experience.earnedPointsByParticipant).toEqual({
+      maya: -25,
+    });
+    expect(parseResponse(adjustment).data.activity.at(-1)).toMatchObject({
+      type: 'points_adjusted',
+      participantId: 'maya',
+      actorParticipantId: 'maya',
+      pointsDelta: -25,
+      reason: 'Replacement cost',
+    });
+    expect(parseResponse(adjustment).data.outbox).toHaveLength(1);
+
+    const retry = createActionRequest('points-adjustment', 1, {
+      type: 'experience_points_adjust',
+      actorParticipantId: 'maya',
+      participantId: 'maya',
+      pointsDelta: -25,
+      reason: 'Replacement cost',
+    });
+    choreStore.handle(retry);
+    expect(parseResponse(retry).data.experience.earnedPointsByParticipant).toEqual({ maya: -25 });
+  });
+
+  it('requires a verified management PIN for point adjustments', () => {
     const mockFs = createMockFs();
     choreStore.setChoreStoreFsForTests(mockFs);
     choreStore.setChoreStorePrincipalResolverForTests(() => PRINCIPAL);
@@ -880,10 +1079,12 @@ describe('NJS chore workspace store', () => {
     const sessionToken = parseResponse(configure).sessionToken;
     expect(sessionToken).toEqual(expect.any(String));
 
-    const blocked = createActionRequest('blocked-profile', 1, {
-      type: 'participant_create',
+    const blocked = createActionRequest('blocked-adjustment', 1, {
+      type: 'experience_points_adjust',
       actorParticipantId: 'maya',
-      participant: managerParticipant('sofia'),
+      participantId: 'maya',
+      pointsDelta: 20,
+      reason: 'Bonus',
     });
     choreStore.handle(blocked);
     expect(blocked.return).toHaveBeenCalledWith(
@@ -899,7 +1100,162 @@ describe('NJS chore workspace store', () => {
         'X-Navet-Chore-Management-Session': sessionToken,
       },
       requestText: JSON.stringify({
-        commandId: 'unlocked-profile',
+        commandId: 'unlocked-adjustment',
+        baseRevision: 1,
+        action: {
+          type: 'experience_points_adjust',
+          actorParticipantId: 'maya',
+          participantId: 'maya',
+          pointsDelta: 20,
+        },
+      }),
+    });
+    choreStore.handle(unlocked);
+    expect(unlocked.return).toHaveBeenCalledWith(200, expect.any(String));
+    expect(parseResponse(unlocked).data.experience.earnedPointsByParticipant.maya).toBe(20);
+    expect(parseResponse(unlocked).data.activity.at(-1)).not.toHaveProperty('reason');
+  });
+
+  it('changes the management PIN only for an unlocked manager session', () => {
+    const mockFs = createMockFs();
+    choreStore.setChoreStoreFsForTests(mockFs);
+    choreStore.setChoreStorePrincipalResolverForTests(() => PRINCIPAL);
+    choreStore.handle(
+      createActionRequest('setup-manager', 0, {
+        type: 'participant_create',
+        participant: managerParticipant(),
+      })
+    );
+
+    const configure = createRequest({
+      method: 'POST',
+      uri: '/__navet_chores__/management/pin',
+      requestText: JSON.stringify({ actorParticipantId: 'maya', pin: '2468' }),
+    });
+    choreStore.handle(configure);
+    const sessionToken = parseResponse(configure).sessionToken;
+
+    const blockedChange = createRequest({
+      method: 'POST',
+      uri: '/__navet_chores__/management/pin',
+      requestText: JSON.stringify({ actorParticipantId: 'maya', pin: '1357' }),
+    });
+    choreStore.handle(blockedChange);
+    expect(blockedChange.return).toHaveBeenCalledWith(
+      403,
+      JSON.stringify({ error: 'Unlock chore management before changing its PIN' })
+    );
+
+    const change = createRequest({
+      method: 'POST',
+      uri: '/__navet_chores__/management/pin',
+      headersIn: { 'X-Navet-Chore-Management-Session': sessionToken },
+      requestText: JSON.stringify({ actorParticipantId: 'maya', pin: '1357' }),
+    });
+    choreStore.handle(change);
+    expect(change.return).toHaveBeenCalledWith(200, expect.any(String));
+
+    const oldPin = createRequest({
+      method: 'POST',
+      uri: '/__navet_chores__/management/verify',
+      requestText: JSON.stringify({ pin: '2468' }),
+    });
+    choreStore.handle(oldPin);
+    expect(oldPin.return).toHaveBeenCalledWith(
+      403,
+      JSON.stringify({ error: 'The management PIN is incorrect' })
+    );
+
+    const newPin = createRequest({
+      method: 'POST',
+      uri: '/__navet_chores__/management/verify',
+      requestText: JSON.stringify({ pin: '1357' }),
+    });
+    choreStore.handle(newPin);
+    expect(newPin.return).toHaveBeenCalledWith(200, expect.any(String));
+  });
+
+  it('removes management PIN protection only for an unlocked active manager', () => {
+    const mockFs = createMockFs();
+    choreStore.setChoreStoreFsForTests(mockFs);
+    choreStore.setChoreStorePrincipalResolverForTests(() => PRINCIPAL);
+    choreStore.handle(
+      createActionRequest('setup-manager', 0, {
+        type: 'participant_create',
+        participant: managerParticipant(),
+      })
+    );
+    const configure = createRequest({
+      method: 'POST',
+      uri: '/__navet_chores__/management/pin',
+      requestText: JSON.stringify({ actorParticipantId: 'maya', pin: '2468' }),
+    });
+    choreStore.handle(configure);
+    const sessionToken = parseResponse(configure).sessionToken;
+
+    const blockedRemoval = createRequest({
+      method: 'DELETE',
+      uri: '/__navet_chores__/management/pin',
+      requestText: JSON.stringify({ actorParticipantId: 'maya' }),
+    });
+    choreStore.handle(blockedRemoval);
+    expect(blockedRemoval.return).toHaveBeenCalledWith(
+      403,
+      JSON.stringify({ error: 'Unlock chore management before removing its PIN' })
+    );
+
+    const removal = createRequest({
+      method: 'DELETE',
+      uri: '/__navet_chores__/management/pin',
+      headersIn: { 'X-Navet-Chore-Management-Session': sessionToken },
+      requestText: JSON.stringify({ actorParticipantId: 'maya' }),
+    });
+    choreStore.handle(removal);
+    expect(removal.return).toHaveBeenCalledWith(200, JSON.stringify({ pinConfigured: false }));
+
+    const workspace = createRequest({ method: 'GET', uri: '/__navet_chores__/workspace' });
+    choreStore.handle(workspace);
+    expect(parseResponse(workspace).management).toEqual({ pinConfigured: false });
+  });
+
+  it('keeps a verified management session across isolated njs request contexts', () => {
+    const mockFs = createMockFs();
+    const sharedSessions = createMockSharedDict();
+    vi.stubGlobal('ngx', {
+      shared: { navet_chore_management_sessions: sharedSessions },
+    });
+    choreStore.setChoreStoreFsForTests(mockFs);
+    choreStore.setChoreStorePrincipalResolverForTests(() => PRINCIPAL);
+    choreStore.handle(
+      createActionRequest('setup-manager', 0, {
+        type: 'participant_create',
+        participant: managerParticipant(),
+      })
+    );
+
+    const configure = createRequest({
+      method: 'POST',
+      uri: '/__navet_chores__/management/pin',
+      requestText: JSON.stringify({ actorParticipantId: 'maya', pin: '2468' }),
+    });
+    choreStore.handle(configure);
+    const sessionToken = parseResponse(configure).sessionToken;
+    expect(sharedSessions.set).toHaveBeenCalledWith(TENANT_ID, sessionToken, 30 * 60 * 1000);
+
+    // Production njs creates a fresh JavaScript VM for the next request.
+    choreStore.resetChoreStoreForTests();
+    choreStore.setChoreStoreFsForTests(mockFs);
+    choreStore.setChoreStorePrincipalResolverForTests(() => PRINCIPAL);
+
+    const protectedCommand = createRequest({
+      method: 'POST',
+      uri: '/__navet_chores__/commands',
+      headersIn: {
+        'X-Navet-Base-Revision': '1',
+        'X-Navet-Chore-Management-Session': sessionToken,
+      },
+      requestText: JSON.stringify({
+        commandId: 'protected-profile',
         baseRevision: 1,
         action: {
           type: 'participant_create',
@@ -908,8 +1264,9 @@ describe('NJS chore workspace store', () => {
         },
       }),
     });
-    choreStore.handle(unlocked);
-    expect(unlocked.return).toHaveBeenCalledWith(200, expect.any(String));
-    expect(parseResponse(unlocked).data.participantsById.sofia.displayName).toBe('Sofia');
+    choreStore.handle(protectedCommand);
+
+    expect(protectedCommand.return).toHaveBeenCalledWith(200, expect.any(String));
+    expect(parseResponse(protectedCommand).data.participantsById.sofia.displayName).toBe('Sofia');
   });
 });

@@ -738,8 +738,23 @@ const STORY_DOCS: Record<string, string> = {
       'Check that the card stays concise enough for dashboard use.',
     ]
   ),
+  'Cards/Custom/Assist': doc(
+    'Home Assistant Assist card for opening Navet’s text and microphone conversation surface.',
+    [
+      'The tiny, extra-small, and small treatments for a provider-bound conversation action.',
+      'How Assist availability and its primary tap affordance fit the existing custom-card grammar.',
+    ],
+    [
+      'Use this story when changing Assist card hierarchy, status copy, or compact sizing.',
+      'Review it with the Action card before changing shared shortcut-card geometry.',
+    ],
+    [
+      'Check that the card reads as a conversation entry point rather than a generic service button.',
+      'Check light, dark, glass, touch, keyboard focus, and all three supported sizes.',
+    ]
+  ),
   'Cards/Custom/Map': doc(
-    'Custom map card rendering person and device_tracker entities with GPS on an interactive Leaflet map.',
+    'Custom map card rendering person and device_tracker entities with GPS on an interactive MapLibre map backed by OpenFreeMap vector tiles.',
     [
       'How GPS-bearing entities are aggregated into a single spatial overview card.',
       'The full-bleed map layout and overlay conventions for non-entity custom cards.',
@@ -1313,7 +1328,7 @@ const ADDITIONAL_STORY_DOCS: Record<string, string> = {
     'Four-step creation surface for adding a chore after onboarding, with the same fields available as one navigable editor when the chore is changed later.',
     [
       'Chore identity, Lucide icon preview, automatic or custom card color, room, estimated time, points, and optional instructions.',
-      'Assignment, once/daily/weekly/bi-weekly/tri-weekly/monthly/after-completion schedules, reminders, and missed-work behavior.',
+      'Assignment, once/daily/weekly/every-2-weeks/every-3-weeks/monthly/after-completion schedules, reminders, and missed-work behavior.',
       'Phone and desktop behavior for long configuration forms.',
     ],
     [

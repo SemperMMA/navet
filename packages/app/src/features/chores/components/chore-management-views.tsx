@@ -1,5 +1,21 @@
-import { DashboardEmptyState, NavigationWorkspace } from '@navet/app/components/patterns';
-import { Button, Input, Panel, Select } from '@navet/app/components/primitives';
+import {
+  CardDialogBody,
+  CardDialogFooter,
+  CardDialogHeader,
+  CardDialogSection,
+  DashboardEmptyState,
+  NavigationWorkspace,
+} from '@navet/app/components/patterns';
+import {
+  BaseCardDialog,
+  Button,
+  Input,
+  Panel,
+  Select,
+  SheetSurface,
+  SheetSurfaceHeader,
+  Textarea,
+} from '@navet/app/components/primitives';
 import { EntityCardHeaderIcon } from '@navet/app/components/primitives/entity-card-header-icon';
 import { getThemeSurfaceTokens } from '@navet/app/components/shared/theme/theme-surface-tokens';
 import { navetIconSizeTokens, navetTypographyTokens } from '@navet/app/components/system/tokens';
@@ -8,12 +24,14 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@navet/app/components/ui/dropdown-menu';
 import { cn } from '@navet/app/components/ui/utils';
 import { isEmojiLightIcon, resolveLightIconComponent } from '@navet/app/constants/icon-map';
 import {
   SettingsEmbeddedSurface,
+  SettingsItem,
   SettingsSectionShell,
 } from '@navet/app/features/settings/components/settings-section-shell';
 import { getSettingsSectionStyles } from '@navet/app/features/settings/hooks/settings-section-styles';
@@ -37,6 +55,8 @@ import {
   DatabaseBackup,
   Gift,
   HeartHandshake,
+  ListFilter,
+  Minus,
   MoreHorizontal,
   Pause,
   Pencil,
@@ -44,12 +64,17 @@ import {
   Plus,
   RotateCcw,
   Search,
+  ShieldCheck,
   Sparkles,
   Trash2,
   Users,
 } from 'lucide-react';
-import { type ReactNode, useEffect, useState } from 'react';
-import { getMissionProgressList, getRewardProgressList } from '../chore-dashboard-selectors';
+import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
+import {
+  getMissionProgressList,
+  getParticipantPointHistory,
+  getRewardProgressList,
+} from '../chore-dashboard-selectors';
 import { ChoreBaseCard } from './chore-base-card';
 import { ChoreDashboardGrid } from './chore-dashboard-grid';
 import { resolveChoreIconComponent } from './chore-icon';
@@ -115,6 +140,7 @@ function choreScheduleLabel(definition: ChoreDefinition, t: ReturnType<typeof us
   if (definition.schedule.frequency === 'weekly') {
     if (definition.schedule.intervalWeeks === 2) return t('household.schedule.biweekly');
     if (definition.schedule.intervalWeeks === 3) return t('household.schedule.triweekly');
+    if (definition.schedule.intervalWeeks === 4) return t('household.schedule.fourWeekly');
     return t('household.schedule.weekly');
   }
   if (definition.schedule.frequency === 'monthly') return t('household.schedule.monthly');
@@ -158,6 +184,91 @@ function LibraryAssignmentSummary({
         {assignmentLabel(definition, participants, t)}
       </span>
     </div>
+  );
+}
+
+function ChoreFilterFields({
+  room,
+  onRoomChange,
+  roomOptions,
+  person,
+  onPersonChange,
+  participants,
+  recurrence,
+  onRecurrenceChange,
+  status,
+  onStatusChange,
+}: {
+  room: string;
+  onRoomChange: (value: string) => void;
+  roomOptions: ReadonlyArray<readonly [string, string]>;
+  person: string;
+  onPersonChange: (value: string) => void;
+  participants: Record<string, ChoreParticipant>;
+  recurrence: string;
+  onRecurrenceChange: (value: string) => void;
+  status: string;
+  onStatusChange: (value: string) => void;
+}) {
+  const { t } = useI18n();
+
+  return (
+    <>
+      <Select
+        size="small"
+        aria-label={t('household.filters.room')}
+        value={room}
+        onChange={(event) => onRoomChange(event.target.value)}
+        onKeyDown={(event) => event.stopPropagation()}
+      >
+        <option value="all">{t('household.filters.allRooms')}</option>
+        {roomOptions.map(([id, label]) => (
+          <option key={id} value={id}>
+            {label}
+          </option>
+        ))}
+      </Select>
+      <Select
+        size="small"
+        aria-label={t('household.filters.person')}
+        value={person}
+        onChange={(event) => onPersonChange(event.target.value)}
+        onKeyDown={(event) => event.stopPropagation()}
+      >
+        <option value="all">{t('household.personPicker.all')}</option>
+        {Object.values(participants).map((participant) => (
+          <option key={participant.id} value={participant.id}>
+            {participant.displayName}
+          </option>
+        ))}
+      </Select>
+      <Select
+        size="small"
+        aria-label={t('household.filters.recurrence')}
+        value={recurrence}
+        onChange={(event) => onRecurrenceChange(event.target.value)}
+        onKeyDown={(event) => event.stopPropagation()}
+      >
+        <option value="all">{t('household.filters.allSchedules')}</option>
+        <option value="once">{t('household.schedule.once')}</option>
+        <option value="daily">{t('household.schedule.daily')}</option>
+        <option value="weekly">{t('household.schedule.weekly')}</option>
+        <option value="monthly">{t('household.schedule.monthly')}</option>
+        <option value="after_completion">{t('household.schedule.afterCompletion')}</option>
+      </Select>
+      <Select
+        size="small"
+        aria-label={t('household.filters.status')}
+        value={status}
+        onChange={(event) => onStatusChange(event.target.value)}
+        onKeyDown={(event) => event.stopPropagation()}
+      >
+        <option value="all">{t('household.filters.allStatuses')}</option>
+        <option value="active">{t('household.chores.active')}</option>
+        <option value="paused">{t('household.chores.paused')}</option>
+        <option value="archived">{t('household.chores.archived')}</option>
+      </Select>
+    </>
   );
 }
 
@@ -225,14 +336,17 @@ export function AllChoresView({
   const archivedDefinitions = Object.values(data.definitionsById)
     .filter((definition) => Boolean(definition.archivedAt))
     .sort((left, right) => left.title.localeCompare(right.title));
+  const activeFilterCount =
+    Number(room !== 'all') +
+    Number(person !== 'all') +
+    Number(recurrence !== 'all') +
+    Number(statusFilter !== 'all');
 
   return (
     <div>
-      <Panel
-        as="section"
+      <section
         aria-label={t('household.chores.title')}
-        muted
-        className="mb-4 grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-[minmax(15rem,1fr)_repeat(4,minmax(8rem,0.4fr))_auto]"
+        className="mb-4 flex min-w-0 items-center gap-2"
       >
         <Input
           type="search"
@@ -242,66 +356,64 @@ export function AllChoresView({
           leading={<Search className="h-4 w-4" aria-hidden="true" />}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
+          containerClassName="min-w-0 flex-1 sm:max-w-sm"
         />
-        <Select
-          size="small"
-          aria-label={t('household.filters.room')}
-          value={room}
-          onChange={(event) => setRoom(event.target.value)}
-        >
-          <option value="all">{t('household.filters.allRooms')}</option>
-          {roomOptions.map(([id, label]) => (
-            <option key={id} value={id}>
-              {label}
-            </option>
-          ))}
-        </Select>
-        <Select
-          size="small"
-          aria-label={t('household.filters.person')}
-          value={person}
-          onChange={(event) => setPerson(event.target.value)}
-        >
-          <option value="all">{t('household.personPicker.all')}</option>
-          {Object.values(data.participantsById).map((participant) => (
-            <option key={participant.id} value={participant.id}>
-              {participant.displayName}
-            </option>
-          ))}
-        </Select>
-        <Select
-          size="small"
-          aria-label={t('household.filters.recurrence')}
-          value={recurrence}
-          onChange={(event) => setRecurrence(event.target.value)}
-        >
-          <option value="all">{t('household.filters.allSchedules')}</option>
-          <option value="once">{t('household.schedule.once')}</option>
-          <option value="daily">{t('household.schedule.daily')}</option>
-          <option value="weekly">{t('household.schedule.weekly')}</option>
-          <option value="monthly">{t('household.schedule.monthly')}</option>
-          <option value="after_completion">{t('household.schedule.afterCompletion')}</option>
-        </Select>
-        <Select
-          size="small"
-          aria-label={t('household.filters.status')}
-          value={statusFilter}
-          onChange={(event) => setStatusFilter(event.target.value)}
-        >
-          <option value="all">{t('household.filters.allStatuses')}</option>
-          <option value="active">{t('household.chores.active')}</option>
-          <option value="paused">{t('household.chores.paused')}</option>
-          <option value="archived">{t('household.chores.archived')}</option>
-        </Select>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              size="small"
+              variant="secondary"
+              className="relative h-9 w-9 shrink-0 justify-center p-0"
+              aria-label={t('dashboard.addCard.filter.label')}
+            >
+              <ListFilter className="h-4 w-4" aria-hidden="true" />
+              {activeFilterCount > 0 ? (
+                <span
+                  data-active-filter-count="true"
+                  className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold leading-none"
+                  style={{
+                    backgroundColor: theme === 'light' ? '#111827' : '#ffffff',
+                    color: theme === 'light' ? '#ffffff' : '#111827',
+                  }}
+                >
+                  {activeFilterCount}
+                </span>
+              ) : null}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            sideOffset={8}
+            className="w-80 max-w-[calc(100vw-2rem)] overflow-visible p-2"
+          >
+            <DropdownMenuLabel className="px-1 pt-1 pb-2 text-xs font-semibold">
+              {t('dashboard.addCard.filter.label')}
+            </DropdownMenuLabel>
+            <div className="grid gap-2">
+              <ChoreFilterFields
+                room={room}
+                onRoomChange={setRoom}
+                roomOptions={roomOptions}
+                person={person}
+                onPersonChange={setPerson}
+                participants={data.participantsById}
+                recurrence={recurrence}
+                onRecurrenceChange={setRecurrence}
+                status={statusFilter}
+                onStatusChange={setStatusFilter}
+              />
+            </div>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Button
           size="small"
-          className="w-full xl:w-auto"
+          className="shrink-0"
           leading={<Plus className="h-4 w-4" aria-hidden="true" />}
           onClick={onAdd}
         >
           {t('household.chores.add')}
         </Button>
-      </Panel>
+      </section>
       {statusFilter === 'archived' ? null : definitions.length === 0 ? (
         <DashboardEmptyState
           compact
@@ -485,6 +597,7 @@ export function MissionsView({
   onDelete: (mission: ChoreMission) => void;
 }) {
   const { t } = useI18n();
+  const { theme } = useTheme();
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | ChoreMission['status']>('all');
   const allMissions = getMissionProgressList(data);
@@ -500,11 +613,9 @@ export function MissionsView({
     .filter(({ mission }) => statusFilter === 'all' || mission.status === statusFilter);
   return (
     <div>
-      <Panel
-        as="section"
+      <section
         aria-label={t('household.missions.title')}
-        muted
-        className="mb-4 grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-[minmax(15rem,1fr)_minmax(10rem,0.4fr)_auto]"
+        className="mb-4 flex min-w-0 items-center gap-2"
       >
         <Input
           type="search"
@@ -514,29 +625,63 @@ export function MissionsView({
           leading={<Search className="h-4 w-4" aria-hidden="true" />}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
+          containerClassName="min-w-0 flex-1 sm:max-w-sm"
         />
-        <Select
-          size="small"
-          aria-label={t('household.filters.status')}
-          value={statusFilter}
-          onChange={(event) =>
-            setStatusFilter(event.target.value as 'all' | ChoreMission['status'])
-          }
-        >
-          <option value="all">{t('household.filters.allStatuses')}</option>
-          <option value="active">{t('household.missions.active')}</option>
-          <option value="upcoming">{t('household.missions.upcoming')}</option>
-          <option value="complete">{t('household.missions.complete')}</option>
-        </Select>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              size="small"
+              variant="secondary"
+              className="relative h-9 w-9 shrink-0 justify-center p-0"
+              aria-label={t('dashboard.addCard.filter.label')}
+            >
+              <ListFilter className="h-4 w-4" aria-hidden="true" />
+              {statusFilter !== 'all' ? (
+                <span
+                  data-active-filter-count="true"
+                  className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold leading-none"
+                  style={{
+                    backgroundColor: theme === 'light' ? '#111827' : '#ffffff',
+                    color: theme === 'light' ? '#ffffff' : '#111827',
+                  }}
+                >
+                  1
+                </span>
+              ) : null}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            sideOffset={8}
+            className="w-80 max-w-[calc(100vw-2rem)] overflow-visible p-2"
+          >
+            <DropdownMenuLabel className="px-1 pt-1 pb-2 text-xs font-semibold">
+              {t('dashboard.addCard.filter.label')}
+            </DropdownMenuLabel>
+            <Select
+              size="small"
+              aria-label={t('household.filters.status')}
+              value={statusFilter}
+              onChange={(event) =>
+                setStatusFilter(event.target.value as 'all' | ChoreMission['status'])
+              }
+            >
+              <option value="all">{t('household.filters.allStatuses')}</option>
+              <option value="active">{t('household.missions.active')}</option>
+              <option value="upcoming">{t('household.missions.upcoming')}</option>
+              <option value="complete">{t('household.missions.complete')}</option>
+            </Select>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Button
           size="small"
-          className="w-full sm:col-span-2 xl:col-span-1 xl:w-auto"
+          className="shrink-0"
           leading={<Plus className="h-4 w-4" aria-hidden="true" />}
           onClick={onAdd}
         >
           {t('household.missions.add')}
         </Button>
-      </Panel>
+      </section>
       {missions.length === 0 ? (
         <DashboardEmptyState
           compact
@@ -613,6 +758,7 @@ export function RewardsView({
   onDelete: (reward: ChoreRewardGoal) => void;
 }) {
   const { t } = useI18n();
+  const { theme } = useTheme();
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | ChoreRewardGoal['type']>('all');
   const allRewards = getRewardProgressList(data);
@@ -624,11 +770,9 @@ export function RewardsView({
     .filter(({ goal }) => typeFilter === 'all' || goal.type === typeFilter);
   return (
     <div>
-      <Panel
-        as="section"
+      <section
         aria-label={t('household.rewards.title')}
-        muted
-        className="mb-4 grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-[minmax(15rem,1fr)_minmax(10rem,0.4fr)_auto]"
+        className="mb-4 flex min-w-0 items-center gap-2"
       >
         <Input
           type="search"
@@ -638,28 +782,64 @@ export function RewardsView({
           leading={<Search className="h-4 w-4" aria-hidden="true" />}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
+          containerClassName="min-w-0 flex-1 sm:max-w-sm"
         />
-        <Select
-          size="small"
-          aria-label={t('household.rewardDialog.type')}
-          value={typeFilter}
-          onChange={(event) => setTypeFilter(event.target.value as 'all' | ChoreRewardGoal['type'])}
-        >
-          <option value="all">{t('household.rewards.allTypes')}</option>
-          <option value="instant">{t('household.rewards.type.instant')}</option>
-          <option value="saving">{t('household.rewards.type.saving')}</option>
-          <option value="family">{t('household.rewards.type.family')}</option>
-          <option value="experience">{t('household.rewards.type.experience')}</option>
-        </Select>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              size="small"
+              variant="secondary"
+              className="relative h-9 w-9 shrink-0 justify-center p-0"
+              aria-label={t('dashboard.addCard.filter.label')}
+            >
+              <ListFilter className="h-4 w-4" aria-hidden="true" />
+              {typeFilter !== 'all' ? (
+                <span
+                  data-active-filter-count="true"
+                  className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold leading-none"
+                  style={{
+                    backgroundColor: theme === 'light' ? '#111827' : '#ffffff',
+                    color: theme === 'light' ? '#ffffff' : '#111827',
+                  }}
+                >
+                  1
+                </span>
+              ) : null}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            sideOffset={8}
+            className="w-80 max-w-[calc(100vw-2rem)] overflow-visible p-2"
+          >
+            <DropdownMenuLabel className="px-1 pt-1 pb-2 text-xs font-semibold">
+              {t('dashboard.addCard.filter.label')}
+            </DropdownMenuLabel>
+            <Select
+              size="small"
+              aria-label={t('household.rewardDialog.type')}
+              value={typeFilter}
+              onChange={(event) =>
+                setTypeFilter(event.target.value as 'all' | ChoreRewardGoal['type'])
+              }
+            >
+              <option value="all">{t('household.rewards.allTypes')}</option>
+              <option value="instant">{t('household.rewards.type.instant')}</option>
+              <option value="saving">{t('household.rewards.type.saving')}</option>
+              <option value="family">{t('household.rewards.type.family')}</option>
+              <option value="experience">{t('household.rewards.type.experience')}</option>
+            </Select>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Button
           size="small"
-          className="w-full sm:col-span-2 xl:col-span-1 xl:w-auto"
+          className="shrink-0"
           leading={<Plus className="h-4 w-4" aria-hidden="true" />}
           onClick={onAdd}
         >
           {t('household.rewards.add')}
         </Button>
-      </Panel>
+      </section>
       {rewards.length === 0 ? (
         <DashboardEmptyState
           compact
@@ -726,12 +906,23 @@ export function RewardsView({
 
 export function ProgressView({
   data,
-  onEditPerson,
+  onAdjustPoints,
+  requestManagementAccess,
 }: {
   data: ChoreWorkspaceData;
-  onEditPerson: (participant: ChoreParticipant) => void;
+  onAdjustPoints: (
+    participant: ChoreParticipant,
+    pointsDelta: number,
+    reason: string
+  ) => Promise<boolean>;
+  requestManagementAccess: (action: () => void) => void;
 }) {
   const { t } = useI18n();
+  const [selectedParticipantId, setSelectedParticipantId] = useState<string | null>(null);
+  const [pointAdjustment, setPointAdjustment] = useState<{
+    participantId: string;
+    direction: 'add' | 'remove';
+  } | null>(null);
   const gamificationEnabled =
     normalizeChoreExperienceState(data.experience).gamificationMode !== 'off';
   const completed = Object.values(data.occurrencesById).filter(
@@ -748,8 +939,17 @@ export function ProgressView({
       points: balances[participant.id] ?? 0,
     };
   });
+  const selectedParticipant = selectedParticipantId
+    ? data.participantsById[selectedParticipantId]
+    : undefined;
+  const adjustmentParticipant = pointAdjustment
+    ? data.participantsById[pointAdjustment.participantId]
+    : undefined;
+  const requestPointAdjustment = (participantId: string, direction: 'add' | 'remove') => {
+    requestManagementAccess(() => setPointAdjustment({ participantId, direction }));
+  };
   return (
-    <div>
+    <>
       <ChoreDashboardGrid>
         {people.map(({ participant, completions, points }) => (
           <ChoreBaseCard
@@ -762,21 +962,313 @@ export function ProgressView({
             metrics={
               gamificationEnabled ? <ChorePointsToken points={points} showPlus={false} /> : null
             }
+            footerLeading={
+              gamificationEnabled ? (
+                <div className="flex items-center gap-1.5" data-point-adjustment-control="true">
+                  <Button
+                    iconOnly
+                    label={t('household.points.addFor', {
+                      name: participant.displayName,
+                    })}
+                    size="compact"
+                    variant="secondary"
+                    onClick={() => requestPointAdjustment(participant.id, 'add')}
+                  >
+                    <Plus className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                  <Button
+                    iconOnly
+                    label={t('household.points.removeFor', {
+                      name: participant.displayName,
+                    })}
+                    size="compact"
+                    variant="secondary"
+                    onClick={() => requestPointAdjustment(participant.id, 'remove')}
+                  >
+                    <Minus className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                </div>
+              ) : null
+            }
             footerAction={
               <Button
                 size="compact"
                 variant="secondary"
                 className="min-w-20 justify-center px-3"
-                leading={<Pencil className="h-4 w-4" />}
-                onClick={() => onEditPerson(participant)}
+                leading={<Clock3 className="h-4 w-4" />}
+                onClick={() => setSelectedParticipantId(participant.id)}
               >
-                {t('household.actions.edit')}
+                {t('household.points.view')}
               </Button>
             }
           />
         ))}
       </ChoreDashboardGrid>
-    </div>
+      {selectedParticipant ? (
+        <ParticipantPointsSheet
+          data={data}
+          participant={selectedParticipant}
+          isOpen
+          onOpenChange={(open) => {
+            if (!open) setSelectedParticipantId(null);
+          }}
+        />
+      ) : null}
+      {adjustmentParticipant && pointAdjustment ? (
+        <PointAdjustmentDialog
+          isOpen
+          participant={adjustmentParticipant}
+          direction={pointAdjustment.direction}
+          currentBalance={getChoreExperiencePointBalances(data)[adjustmentParticipant.id] ?? 0}
+          onOpenChange={(open) => {
+            if (!open) setPointAdjustment(null);
+          }}
+          onSave={(pointsDelta, reason) =>
+            onAdjustPoints(adjustmentParticipant, pointsDelta, reason)
+          }
+        />
+      ) : null}
+    </>
+  );
+}
+
+function ParticipantPointsSheet({
+  data,
+  participant,
+  isOpen,
+  onOpenChange,
+}: {
+  data: ChoreWorkspaceData;
+  participant: ChoreParticipant;
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const { accentColor, theme } = useTheme();
+  const surface = getThemeSurfaceTokens(theme);
+  const history = useMemo(
+    () => getParticipantPointHistory(data, participant.id),
+    [data, participant.id]
+  );
+  const completedCount = Object.values(data.occurrencesById).filter(
+    (occurrence) => occurrence.status === 'done' && occurrence.completedBy === participant.id
+  ).length;
+  return (
+    <SheetSurface
+      isOpen={isOpen}
+      onOpenChange={onOpenChange}
+      title={t('household.points.title', { name: participant.displayName })}
+      description={t('household.points.description')}
+      closeLabel={t('household.points.close')}
+      accentColor={participant.color ?? accentColor}
+      responsive
+      contentClassName="sm:max-w-lg"
+      bodyClassName="pb-[max(1rem,env(safe-area-inset-bottom))]"
+    >
+      <SheetSurfaceHeader
+        title={participant.displayName}
+        description={t('household.points.description')}
+        closeLabel={t('household.points.close')}
+        onClose={() => onOpenChange(false)}
+        className={cn('border-b', surface.border)}
+      />
+      <div className="px-4 pt-4 sm:px-5">
+        <div
+          className={cn(
+            'flex items-center gap-3 rounded-2xl border p-4',
+            surface.border,
+            surface.subtleBg
+          )}
+        >
+          <ProgressParticipantAvatar participant={participant} />
+          <div className="min-w-0 flex-1">
+            <p className={cn('text-sm font-semibold', surface.textPrimary)}>
+              {t('household.points.currentBalance')}
+            </p>
+            <p className={cn('mt-0.5 text-xs', surface.textSecondary)}>
+              {t('household.progress.completedCount', { count: completedCount })}
+            </p>
+          </div>
+          <span className={cn('text-2xl font-semibold tabular-nums', surface.textPrimary)}>
+            {history.balance}
+          </span>
+        </div>
+        <section className="mt-6" aria-labelledby="participant-point-history-title">
+          <h2
+            id="participant-point-history-title"
+            className={cn(navetTypographyTokens.sectionHeading, surface.textPrimary)}
+          >
+            {t('household.points.history')}
+          </h2>
+          {history.entries.length === 0 ? (
+            <p className={cn('mt-3 text-sm', surface.textSecondary)}>
+              {t('household.points.emptyHistory')}
+            </p>
+          ) : (
+            <div className={cn('mt-2 divide-y', surface.border)}>
+              {history.entries.map((entry) => {
+                const definitionTitle = entry.definitionId
+                  ? data.definitionsById[entry.definitionId]?.title
+                  : undefined;
+                const label =
+                  entry.type === 'earlier'
+                    ? t('household.points.earlierBalance')
+                    : entry.type === 'adjusted'
+                      ? (entry.reason ?? t('household.points.manualAdjustment'))
+                      : entry.type === 'reopened'
+                        ? t('household.points.choreReopened', {
+                            name: definitionTitle ?? t('household.points.chore'),
+                          })
+                        : t('household.points.choreCompleted', {
+                            name: definitionTitle ?? t('household.points.chore'),
+                          });
+                return (
+                  <div key={entry.id} className="flex min-h-14 items-center gap-3 py-3">
+                    <div className="min-w-0 flex-1">
+                      <p className={cn('truncate text-sm font-medium', surface.textPrimary)}>
+                        {label}
+                      </p>
+                      {entry.timestamp ? (
+                        <p className={cn('mt-0.5 text-xs', surface.textSecondary)}>
+                          {i18n.formatDate(new Date(entry.timestamp), {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric',
+                          })}{' '}
+                          · {i18n.formatTime(new Date(entry.timestamp))}
+                        </p>
+                      ) : null}
+                    </div>
+                    <span
+                      className={cn(
+                        'text-sm font-semibold tabular-nums',
+                        entry.pointsDelta >= 0 ? 'text-emerald-500' : 'text-rose-500'
+                      )}
+                    >
+                      {entry.pointsDelta > 0 ? '+' : ''}
+                      {entry.pointsDelta}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      </div>
+    </SheetSurface>
+  );
+}
+
+function PointAdjustmentDialog({
+  isOpen,
+  participant,
+  direction,
+  currentBalance,
+  onOpenChange,
+  onSave,
+}: {
+  isOpen: boolean;
+  participant: ChoreParticipant;
+  direction: 'add' | 'remove';
+  currentBalance: number;
+  onOpenChange: (open: boolean) => void;
+  onSave: (pointsDelta: number, reason: string) => Promise<boolean>;
+}) {
+  const { t } = useI18n();
+  const { theme } = useTheme();
+  const surface = getThemeSurfaceTokens(theme);
+  const [amount, setAmount] = useState(1);
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(false);
+  useEffect(() => {
+    if (!isOpen) return;
+    setAmount(1);
+    setReason('');
+    setSaveError(false);
+  }, [direction, isOpen]);
+  const pointsDelta = direction === 'add' ? Math.round(amount) : -Math.round(amount);
+  const validAmount = Number.isSafeInteger(amount) && amount >= 1 && amount <= 10_000;
+  const projectedBalance = currentBalance + (validAmount ? pointsDelta : 0);
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!validAmount) return;
+    setSaving(true);
+    setSaveError(false);
+    const saved = await onSave(pointsDelta, reason.trim());
+    setSaving(false);
+    setSaveError(!saved);
+    if (saved) onOpenChange(false);
+  };
+  return (
+    <BaseCardDialog
+      variant="modal"
+      isOpen={isOpen}
+      onOpenChange={onOpenChange}
+      title={t(direction === 'add' ? 'household.points.addFor' : 'household.points.removeFor', {
+        name: participant.displayName,
+      })}
+      description={t('household.points.adjustDescription')}
+      theme={theme}
+      maxWidth="sm"
+      bodyPadding={false}
+    >
+      <form onSubmit={submit}>
+        <CardDialogBody>
+          <CardDialogHeader
+            title={t(
+              direction === 'add' ? 'household.points.addFor' : 'household.points.removeFor',
+              { name: participant.displayName }
+            )}
+            description={t('household.points.adjustDescription')}
+            showRoomSelector={false}
+          />
+          <CardDialogSection label={t('household.points.amount')}>
+            <Input
+              autoFocus
+              aria-label={t('household.points.amount')}
+              type="number"
+              min={1}
+              max={10000}
+              step={1}
+              value={amount}
+              invalid={!validAmount}
+              onChange={(event) => setAmount(Number(event.target.value))}
+            />
+          </CardDialogSection>
+          <CardDialogSection label={t('household.points.reason')}>
+            <Textarea
+              aria-label={t('household.points.reason')}
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+            />
+          </CardDialogSection>
+          <output
+            aria-live="polite"
+            data-point-balance-preview="true"
+            className={cn(
+              'flex min-h-11 items-center rounded-xl border px-3 py-2.5 text-sm font-semibold tabular-nums',
+              surface.borderStrong,
+              surface.subtleBg,
+              surface.textPrimary
+            )}
+          >
+            {t('household.points.projectedBalance', { count: projectedBalance })}
+          </output>
+          {saveError ? (
+            <p className="text-sm text-red-500" role="alert">
+              {t('household.points.saveFailed')}
+            </p>
+          ) : null}
+          <CardDialogFooter>
+            <Button type="submit" loading={saving} disabled={!validAmount || saving}>
+              {t(direction === 'add' ? 'household.points.saveAdd' : 'household.points.saveRemove')}
+            </Button>
+          </CardDialogFooter>
+        </CardDialogBody>
+      </form>
+    </BaseCardDialog>
   );
 }
 
@@ -785,12 +1277,18 @@ export function ChoreSettingsView({
   onModeChange,
   onAddPerson,
   onEditPerson,
+  managementPinConfigured,
+  onManagePin,
+  onRemovePin,
   recoveryContent,
 }: {
   data: ChoreWorkspaceData;
   onModeChange: (mode: 'off' | 'light' | 'family' | 'adventure') => void;
   onAddPerson: () => void;
   onEditPerson: (participant: ChoreParticipant) => void;
+  managementPinConfigured: boolean;
+  onManagePin: () => void;
+  onRemovePin: () => void;
   recoveryContent?: ReactNode;
 }) {
   const { t } = useI18n();
@@ -798,9 +1296,9 @@ export function ChoreSettingsView({
   const styles = getSettingsSectionStyles(theme, primaryColor);
   const experience = normalizeChoreExperienceState(data.experience);
   const isMobile = useMediaQuery('(max-width: 767px)');
-  const [activeSection, setActiveSection] = useState<'motivation' | 'people' | 'recovery'>(
-    'motivation'
-  );
+  const [activeSection, setActiveSection] = useState<
+    'motivation' | 'people' | 'protection' | 'recovery'
+  >('motivation');
   const sections = [
     {
       id: 'motivation' as const,
@@ -808,6 +1306,11 @@ export function ChoreSettingsView({
       label: t('household.settings.gamification'),
     },
     { id: 'people' as const, icon: Users, label: t('household.members.title') },
+    {
+      id: 'protection' as const,
+      icon: ShieldCheck,
+      label: t('household.management.pinLabel'),
+    },
     { id: 'recovery' as const, icon: DatabaseBackup, label: t('household.data.title') },
   ];
   const activeSectionMeta = sections.find((section) => section.id === activeSection) ?? sections[0];
@@ -899,6 +1402,50 @@ export function ChoreSettingsView({
               </div>
             ))}
           </div>
+        </SettingsSectionShell>
+      </SettingsEmbeddedSurface>
+    ) : activeSection === 'protection' ? (
+      <SettingsEmbeddedSurface>
+        <SettingsSectionShell
+          id="household-protection"
+          icon={ShieldCheck}
+          title={t('household.management.pinLabel')}
+          description={t('household.setup.securityDescription')}
+          styles={styles}
+        >
+          <SettingsItem
+            title={t('household.management.pinLabel')}
+            description={t('household.setup.pinHelper')}
+            styles={styles}
+          >
+            <div className="flex min-h-10 flex-wrap items-center justify-between gap-3">
+              <span className={cn('text-sm font-medium', styles.subtleColor)}>
+                {managementPinConfigured ? t('common.on') : t('common.off')}
+              </span>
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  size="compact"
+                  variant="secondary"
+                  className="min-h-10 shrink-0"
+                  onClick={onManagePin}
+                >
+                  {managementPinConfigured
+                    ? t('household.management.changePin')
+                    : t('household.management.setPin')}
+                </Button>
+                {managementPinConfigured ? (
+                  <Button
+                    size="compact"
+                    variant="destructive"
+                    className="min-h-10 shrink-0"
+                    onClick={onRemovePin}
+                  >
+                    {t('household.management.removePin')}
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          </SettingsItem>
         </SettingsSectionShell>
       </SettingsEmbeddedSurface>
     ) : (

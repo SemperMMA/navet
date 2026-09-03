@@ -1,16 +1,22 @@
+import { resetRuntimeContextForTests } from '@navet/app/infrastructure/home-assistant/runtime/runtime-detector';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  getChoreWorkspaceTransport,
   loadChoreBackup,
   loadChoreDefinitions,
   loadChoreEvents,
   loadChoreHistory,
   loadChoreOccurrences,
+  loadChoreRuntimeCapabilities,
   loadChoreWorkspace,
   recoverChoreWorkspace,
+  removeChoreManagementPin,
   resetChoreWorkspace,
   restoreChoreWorkspace,
   sendChoreWorkspaceCommand,
+  subscribeChoreWorkspace,
 } from '../chore-workspace.service';
+import { homeAssistantService } from '../home-assistant.service';
 
 const emptyData = {
   schemaVersion: 2 as const,
@@ -22,10 +28,179 @@ const emptyData = {
 };
 
 afterEach(() => {
+  window.__NAVET_PANEL__ = false;
+  resetRuntimeContextForTests();
+  homeAssistantService.disconnect();
   vi.restoreAllMocks();
 });
 
 describe('chore workspace service', () => {
+  it('uses the authenticated Home Assistant WebSocket transport in custom-panel mode', async () => {
+    window.__NAVET_PANEL__ = true;
+    resetRuntimeContextForTests();
+    const callWS = vi.fn(async (message: Record<string, unknown>) => {
+      if (message.type === 'navet/chores/info') {
+        return {
+          contractVersion: 1,
+          schemaVersion: 2,
+          authority: 'home_assistant_panel',
+          backgroundScheduling: true,
+          backgroundNotifications: true,
+          projectionOwnedByAuthority: true,
+          actionServices: true,
+        };
+      }
+      return {
+        contractVersion: 1,
+        revision: message.type === 'navet/chores/command' ? 2 : 1,
+        updatedAt: '2026-08-28T08:00:00.000Z',
+        data: emptyData,
+        management: { pinConfigured: false },
+      };
+    });
+    const subscribeMessage = vi.fn(async (callback: (value: unknown) => void) => {
+      callback({
+        contractVersion: 1,
+        revision: 3,
+        updatedAt: '2026-08-28T08:01:00.000Z',
+        data: emptyData,
+        management: { pinConfigured: false },
+      });
+      return vi.fn();
+    });
+    homeAssistantService.setPanelHass({
+      states: {},
+      config: {},
+      callService: vi.fn(),
+      callWS,
+      connection: { subscribeMessage },
+    } as never);
+
+    expect(getChoreWorkspaceTransport().kind).toBe('home_assistant_websocket');
+
+    await expect(loadChoreRuntimeCapabilities()).resolves.toMatchObject({
+      authority: 'home_assistant_panel',
+      backgroundScheduling: true,
+    });
+    await expect(loadChoreWorkspace()).resolves.toMatchObject({
+      available: true,
+      document: { revision: 1 },
+    });
+    await expect(
+      sendChoreWorkspaceCommand({
+        commandId: 'panel-command',
+        baseRevision: 1,
+        action: {
+          type: 'participant_create',
+          participant: {
+            id: 'panel-manager',
+            displayName: 'Panel manager',
+            capabilities: ['complete', 'approve', 'manage'],
+            createdAt: '2026-08-28T08:00:00.000Z',
+            updatedAt: '2026-08-28T08:00:00.000Z',
+          },
+        },
+      })
+    ).resolves.toMatchObject({ saved: true, revision: 2 });
+    const update = vi.fn();
+    await subscribeChoreWorkspace(update);
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ revision: 3 }));
+    expect(callWS.mock.calls.map(([message]) => message.type)).toEqual([
+      'navet/chores/info',
+      'navet/chores/workspace/get',
+      'navet/chores/command',
+    ]);
+    expect(subscribeMessage).toHaveBeenCalledWith(
+      expect.any(Function),
+      { type: 'navet/chores/workspace/subscribe' },
+      undefined
+    );
+  });
+
+  it('shows an integration-upgrade error when the panel backend lacks chores', async () => {
+    window.__NAVET_PANEL__ = true;
+    resetRuntimeContextForTests();
+    homeAssistantService.setPanelHass({
+      states: {},
+      config: {},
+      callService: vi.fn(),
+      callWS: vi.fn().mockRejectedValue(new Error('Unknown command navet/chores/workspace/get')),
+    } as never);
+
+    await expect(loadChoreWorkspace()).resolves.toMatchObject({
+      available: false,
+      error: expect.stringContaining('Update the Navet Home Assistant integration'),
+    });
+  });
+
+  it('preserves structured recovery metadata from the panel authority', async () => {
+    window.__NAVET_PANEL__ = true;
+    resetRuntimeContextForTests();
+    homeAssistantService.setPanelHass({
+      states: {},
+      config: {},
+      callService: vi.fn(),
+      callWS: vi.fn().mockRejectedValue({
+        code: 'workspace_invalid',
+        message: 'Chore data could not be read',
+        data: {
+          recovery: {
+            backupAvailable: false,
+            pinConfigured: true,
+            reason: 'workspace_invalid',
+          },
+        },
+      }),
+    } as never);
+
+    await expect(loadChoreWorkspace()).resolves.toMatchObject({
+      available: false,
+      error: 'Chore data could not be read',
+      recovery: {
+        backupAvailable: false,
+        pinConfigured: true,
+        reason: 'workspace_invalid',
+      },
+    });
+  });
+
+  it('returns the current revision for stale panel commands', async () => {
+    window.__NAVET_PANEL__ = true;
+    resetRuntimeContextForTests();
+    homeAssistantService.setPanelHass({
+      states: {},
+      config: {},
+      callService: vi.fn(),
+      callWS: vi.fn().mockRejectedValue({
+        code: 'stale_revision',
+        message: 'Chore workspace changed on another client',
+        data: { revision: 9 },
+      }),
+    } as never);
+
+    await expect(
+      sendChoreWorkspaceCommand({
+        commandId: 'stale-panel-command',
+        baseRevision: 8,
+        action: {
+          type: 'participant_create',
+          participant: {
+            id: 'manager',
+            displayName: 'Manager',
+            capabilities: ['complete', 'approve', 'manage'],
+            createdAt: '2026-08-28T08:00:00.000Z',
+            updatedAt: '2026-08-28T08:00:00.000Z',
+          },
+        },
+      })
+    ).resolves.toMatchObject({
+      saved: false,
+      preconditionFailed: true,
+      revision: 9,
+      retryable: false,
+    });
+  });
+
   it('loads and conditionally refreshes the shared document', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(
@@ -221,6 +396,53 @@ describe('chore workspace service', () => {
         'X-Navet-Chore-Management-Session': 'manager-session',
       }),
       body: JSON.stringify({ action: 'restore_backup', confirmation: 'REPAIR CHORES' }),
+    });
+  });
+
+  it('removes the management PIN with the active management session', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ pinConfigured: false }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    await expect(
+      removeChoreManagementPin({ actorParticipantId: 'maya' }, 'manager-session')
+    ).resolves.toMatchObject({
+      removed: true,
+      document: { pinConfigured: false },
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${window.location.origin}/__navet_chores__/management/pin`,
+      expect.objectContaining({
+        method: 'DELETE',
+        headers: expect.objectContaining({
+          'X-Navet-Chore-Management-Session': 'manager-session',
+        }),
+        body: JSON.stringify({ actorParticipantId: 'maya' }),
+      })
+    );
+  });
+
+  it('removes the management PIN through the authenticated panel transport', async () => {
+    window.__NAVET_PANEL__ = true;
+    resetRuntimeContextForTests();
+    const callWS = vi.fn().mockResolvedValue({ pinConfigured: false });
+    homeAssistantService.setPanelHass({
+      states: {},
+      config: {},
+      callService: vi.fn(),
+      callWS,
+    } as never);
+
+    await expect(
+      removeChoreManagementPin({ actorParticipantId: 'maya' }, 'manager-session')
+    ).resolves.toMatchObject({ removed: true });
+    expect(callWS).toHaveBeenCalledWith({
+      type: 'navet/chores/management/pin/remove',
+      actorParticipantId: 'maya',
+      managementSessionToken: 'manager-session',
     });
   });
 

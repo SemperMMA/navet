@@ -1,13 +1,13 @@
 import { getThemeSurfaceTokens } from '@navet/app/components/shared/theme/theme-surface-tokens';
 import { useTheme } from '@navet/app/hooks';
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 import { navetTypographyTokens } from './foundations';
 import { ThemeTokenShowcase } from './theme-token-showcase';
 
 const navetFontTokens = {
-  body: 'font-sans',
+  body: 'Inter · font-sans',
   code: 'font-mono',
-  fallback: 'system-ui, -apple-system, Segoe UI, sans-serif',
+  fallback: 'ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif',
 };
 
 function FontsStory() {
@@ -16,7 +16,7 @@ function FontsStory() {
 
   return (
     <ThemeTokenShowcase
-      intro="Font utility tokens used across Navet. `font-sans` is the default UI stack for controls, labels, and content. `font-mono` is reserved for identifiers, diagnostics, and machine-like values where alignment and precision matter."
+      intro="Inter is Navet's self-hosted reading voice. `font-sans` applies it to controls, labels, and content, while `font-mono` remains reserved for identifiers, diagnostics, and machine-like values where alignment and precision matter."
       tokens={navetFontTokens}
       previewTitle="Reference usage"
       preview={

@@ -2,7 +2,7 @@ import { WorkbenchIntro, WorkbenchPage, WorkbenchPanel } from '@navet/app/storyb
 import * as patterns from '@navet/app/ui-kit/patterns';
 import * as primitives from '@navet/app/ui-kit/primitives';
 import * as tokens from '@navet/app/ui-kit/tokens';
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 
 type InventoryEntry = readonly [name: string, path: string, useFor?: string];
 
@@ -37,6 +37,7 @@ const exportDescriptions: Record<string, string> = {
   getThemeFocusRingClassName: 'theme-aware focus ring class',
   getThemeSurfaceTokens: 'theme surface recipes for panels and text',
   getUiKitGlassSheetGlowClassName: 'glass-sheet accent glow helper',
+  getUiKitGlassWorkspaceGlowClassName: 'glass workspace specular highlight helper',
   getUiKitModalContentClassName: 'modal surface class composition',
   getUiKitPanelSurfaceClassName: 'panel surface class composition',
   getUiKitSheetContentClassName: 'sheet content class composition',

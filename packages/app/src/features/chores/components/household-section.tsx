@@ -19,6 +19,11 @@ import { HabitInsightsPanel } from '@navet/app/features/habits/components/habit-
 import { useLocalHabitsFeature } from '@navet/app/features/habits/local-habits-feature';
 import { TasksSection } from '@navet/app/features/tasks/components/tasks-section';
 import { useI18n } from '@navet/app/hooks';
+import { isHomeAssistantPanelMode } from '@navet/app/runtime/app-mode';
+import {
+  type ChoreRuntimeCapabilities,
+  getChoreWorkspaceTransport,
+} from '@navet/app/services/chore-workspace.service';
 import {
   publishIntegrationChoreProjection,
   subscribeIntegrationChoreActionRequests,
@@ -54,7 +59,12 @@ import {
   RewardsView,
 } from './chore-management-views';
 import { ChoreOnboardingDialog, ChoreOnboardingWelcome } from './chore-onboarding';
-import { AddChoreDialog, AddPersonDialog, ChoreManagementPinDialog } from './chore-setup-dialogs';
+import {
+  AddChoreDialog,
+  AddPersonDialog,
+  ChoreManagementPinDialog,
+  ChoreManagementPinEditorDialog,
+} from './chore-setup-dialogs';
 import { ChoreTodayView } from './chore-today-view';
 
 type HouseholdView =
@@ -241,6 +251,9 @@ export function HouseholdSection({ syncEnabled = true }: { syncEnabled?: boolean
   const [rewardDialogOpen, setRewardDialogOpen] = useState(false);
   const [setupDialogOpen, setSetupDialogOpen] = useState(false);
   const [managementPinDialogOpen, setManagementPinDialogOpen] = useState(false);
+  const [managementPinEditorOpen, setManagementPinEditorOpen] = useState(false);
+  const [managementPinRemovalOpen, setManagementPinRemovalOpen] = useState(false);
+  const [removingManagementPin, setRemovingManagementPin] = useState(false);
   const [participantToEdit, setParticipantToEdit] = useState<ChoreParticipant | null>(null);
   const [definitionToEdit, setDefinitionToEdit] = useState<ChoreDefinition | null>(null);
   const [missionToEdit, setMissionToEdit] = useState<ChoreMission | null>(null);
@@ -255,13 +268,39 @@ export function HouseholdSection({ syncEnabled = true }: { syncEnabled?: boolean
   const managementUnlocked = useChoreWorkspaceStore((state) => state.managementUnlocked);
   const managementError = useChoreWorkspaceStore((state) => state.managementError);
   const configureManagementPin = useChoreWorkspaceStore((state) => state.configureManagementPin);
+  const removeManagementPin = useChoreWorkspaceStore((state) => state.removeManagementPin);
   const unlockManagement = useChoreWorkspaceStore((state) => state.unlockManagement);
+  const restoreBackup = useChoreWorkspaceStore((state) => state.restoreBackup);
   const pendingManagementActionRef = useRef<(() => void) | null>(null);
   const roomDescriptors = useSyncExternalStore(
     integrationStore.subscribe,
     () => integrationStore.getState().roomDescriptors,
     () => integrationStore.getState().roomDescriptors
   );
+  const [runtimeCapabilities, setRuntimeCapabilities] = useState<ChoreRuntimeCapabilities | null>(
+    null
+  );
+
+  useEffect(() => {
+    if (!syncEnabled) return;
+    let active = true;
+    void getChoreWorkspaceTransport()
+      .loadCapabilities()
+      .then((capabilities) => {
+        if (active) setRuntimeCapabilities(capabilities);
+      });
+    return () => {
+      active = false;
+    };
+  }, [syncEnabled]);
+
+  const panelAuthority = isHomeAssistantPanelMode();
+  const authoritySchedules = panelAuthority || runtimeCapabilities?.backgroundScheduling === true;
+  const authorityDeliversNotifications =
+    panelAuthority || runtimeCapabilities?.backgroundNotifications === true;
+  const authorityPublishesProjection =
+    panelAuthority || runtimeCapabilities?.projectionOwnedByAuthority === true;
+  const authorityHandlesActions = panelAuthority || runtimeCapabilities?.actionServices === true;
 
   useEffect(() => {
     if (!habitsVisible && view === 'habits') {
@@ -278,18 +317,18 @@ export function HouseholdSection({ syncEnabled = true }: { syncEnabled?: boolean
   );
 
   useChoreWorkspaceSync(syncEnabled);
-  useChoreReminderDelivery(syncEnabled);
+  useChoreReminderDelivery(syncEnabled && !authorityDeliversNotifications);
 
   useEffect(() => {
-    if (!syncEnabled || !data) return;
+    if (!syncEnabled || !data || authorityPublishesProjection) return;
     void publishIntegrationChoreProjection({
       workspace: data,
       revision: revision ?? undefined,
     }).catch(() => undefined);
-  }, [data, revision, syncEnabled]);
+  }, [authorityPublishesProjection, data, revision, syncEnabled]);
 
   useEffect(() => {
-    if (!syncEnabled) return;
+    if (!syncEnabled || authorityHandlesActions) return;
     let active = true;
     let unsubscribe = () => {};
     void subscribeIntegrationChoreActionRequests((request) => {
@@ -320,7 +359,7 @@ export function HouseholdSection({ syncEnabled = true }: { syncEnabled?: boolean
       active = false;
       unsubscribe();
     };
-  }, [execute, syncEnabled]);
+  }, [authorityHandlesActions, execute, syncEnabled]);
 
   const allParticipants = useMemo(() => (data ? Object.values(data.participantsById) : []), [data]);
   const participants = useMemo(
@@ -340,6 +379,7 @@ export function HouseholdSection({ syncEnabled = true }: { syncEnabled?: boolean
   useEffect(() => {
     if (
       !syncEnabled ||
+      authoritySchedules ||
       status !== 'ready' ||
       !data ||
       Object.keys(data.definitionsById).length === 0
@@ -349,7 +389,7 @@ export function HouseholdSection({ syncEnabled = true }: { syncEnabled?: boolean
     const materialized = materializeChoreWorkspace(data);
     if (!materialized.changed) return;
     void execute({ type: 'materialize_occurrences', ...getChoreMaterializationRange() });
-  }, [data, execute, status, syncEnabled]);
+  }, [authoritySchedules, data, execute, status, syncEnabled]);
 
   const managerActorId =
     participants.find(
@@ -488,6 +528,21 @@ export function HouseholdSection({ syncEnabled = true }: { syncEnabled?: boolean
       ...experience,
       rewardGoalsById: { ...experience.rewardGoalsById, [reward.id]: reward },
     }));
+
+  const adjustParticipantPoints = (
+    participant: ChoreParticipant,
+    pointsDelta: number,
+    reason: string
+  ) => {
+    if (!managerActorId) return Promise.resolve(false);
+    return execute({
+      type: 'experience_points_adjust',
+      actorParticipantId: managerActorId,
+      participantId: participant.id,
+      pointsDelta,
+      reason,
+    });
+  };
 
   const markSetupStarted = async () => {
     const current = useChoreWorkspaceStore.getState().data;
@@ -652,6 +707,10 @@ export function HouseholdSection({ syncEnabled = true }: { syncEnabled?: boolean
             setSetupDialogOpen(true);
             if (participants.length > 0) void markSetupStarted();
           }}
+          onRestoreBackup={({ actorParticipantId, document }) =>
+            restoreBackup({ actorParticipantId, document, mode: 'replace' })
+          }
+          restoreError={error}
         />
         <ChoreOnboardingDialog
           isOpen={setupDialogOpen}
@@ -673,6 +732,10 @@ export function HouseholdSection({ syncEnabled = true }: { syncEnabled?: boolean
           }}
           onSaveRewards={saveSetupRewards}
           onConfigurePin={configureManagementPin}
+          managementPinConfigured={managementPinConfigured}
+          managementUnlocked={managementUnlocked}
+          managementError={managementError}
+          onUnlockManagement={unlockManagement}
           onComplete={completeSetup}
         />
       </div>
@@ -844,10 +907,8 @@ export function HouseholdSection({ syncEnabled = true }: { syncEnabled?: boolean
           data ? (
             <ProgressView
               data={data}
-              onEditPerson={(participant) => {
-                setParticipantToEdit(participant);
-                setPersonDialogOpen(true);
-              }}
+              onAdjustPoints={adjustParticipantPoints}
+              requestManagementAccess={withManagementAccess}
             />
           ) : null
         )}
@@ -868,6 +929,9 @@ export function HouseholdSection({ syncEnabled = true }: { syncEnabled?: boolean
                 setParticipantToEdit(participant);
                 setPersonDialogOpen(true);
               }}
+              managementPinConfigured={managementPinConfigured}
+              onManagePin={() => withManagementAccess(() => setManagementPinEditorOpen(true))}
+              onRemovePin={() => withManagementAccess(() => setManagementPinRemovalOpen(true))}
               recoveryContent={
                 managerActorId ? (
                   <ChoreDataRecovery
@@ -915,6 +979,63 @@ export function HouseholdSection({ syncEnabled = true }: { syncEnabled?: boolean
             pendingAction?.();
           }
           return unlocked;
+        }}
+      />
+      <AlertDialog open={managementPinRemovalOpen} onOpenChange={setManagementPinRemovalOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('household.management.removePinTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('household.management.removePinDescription')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {managementError ? (
+            <p className="text-sm text-red-500" role="alert">
+              {managementError}
+            </p>
+          ) : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel className="min-h-10">{t('common.cancel')}</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              className="min-h-10"
+              loading={removingManagementPin}
+              disabled={removingManagementPin}
+              onClick={async () => {
+                if (!managerActorId) return;
+                setRemovingManagementPin(true);
+                const removed = await removeManagementPin(managerActorId);
+                setRemovingManagementPin(false);
+                if (removed) {
+                  setManagementPinRemovalOpen(false);
+                  return;
+                }
+                if (!useChoreWorkspaceStore.getState().managementUnlocked) {
+                  setManagementPinRemovalOpen(false);
+                  pendingManagementActionRef.current = () => setManagementPinRemovalOpen(true);
+                  setManagementPinDialogOpen(true);
+                }
+              }}
+            >
+              {t('household.management.removePin')}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <ChoreManagementPinEditorDialog
+        configured={managementPinConfigured}
+        error={managementError}
+        isOpen={managementPinEditorOpen}
+        onOpenChange={setManagementPinEditorOpen}
+        onSave={async (pin) => {
+          if (!managerActorId) return false;
+          const saved = await configureManagementPin(managerActorId, pin);
+          if (!saved && !useChoreWorkspaceStore.getState().managementUnlocked) {
+            setManagementPinEditorOpen(false);
+            pendingManagementActionRef.current = () => setManagementPinEditorOpen(true);
+            setManagementPinDialogOpen(true);
+          }
+          return saved;
         }}
       />
       <AddChoreDialog
