@@ -1,4 +1,5 @@
 import type { DeviceWithType } from '@navet/app/types/device.types';
+import { getDeviceRoomLabel } from '@navet/app/utils/device-location';
 
 export type ClimateDashboardGroupKey =
   | 'climate'
@@ -73,4 +74,28 @@ export function getClimateDashboardGroup(device: DeviceWithType): ClimateDashboa
     default:
       return null;
   }
+}
+
+function getClimateSortRank(device: DeviceWithType): number {
+  if (device.type === 'climate' || device.type === 'hvac') {
+    const modes = (device.supportedHvacModes ?? []).map((mode) => String(mode).toLowerCase());
+    // Whole-home thermostats (heat capable) ahead of room air conditioners.
+    return modes.includes('heat') || modes.includes('heat_cool') || modes.includes('auto') ? 0 : 1;
+  }
+  if (device.type === 'covers') {
+    const members = (device as { groupMembers?: unknown }).groupMembers;
+    const memberCount = Array.isArray(members) ? members.length : 0;
+    // Bigger groups first (All -> floors -> rooms), then individual blinds.
+    return memberCount > 0 ? -memberCount : 1;
+  }
+  return 0;
+}
+
+/** Stable order inside a climate group: kind rank, then room, then name. */
+export function compareClimateDashboardDevices(left: DeviceWithType, right: DeviceWithType) {
+  const rankDelta = getClimateSortRank(left) - getClimateSortRank(right);
+  if (rankDelta !== 0) return rankDelta;
+  const roomDelta = getDeviceRoomLabel(left).localeCompare(getDeviceRoomLabel(right));
+  if (roomDelta !== 0) return roomDelta;
+  return (left.name ?? left.id).localeCompare(right.name ?? right.id);
 }

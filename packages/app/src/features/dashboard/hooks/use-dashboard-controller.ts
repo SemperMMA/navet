@@ -45,7 +45,10 @@ import {
 } from 'react';
 import { toast } from 'sonner';
 import { useShallow } from 'zustand/react/shallow';
-import { getClimateDashboardGroup } from '../../climate/utils/climate-dashboard-group';
+import {
+  compareClimateDashboardDevices,
+  getClimateDashboardGroup,
+} from '../../climate/utils/climate-dashboard-group';
 import type { AllViewGrouping } from '../all-view-grid';
 import {
   normalizeMediaStackWidgetData,
@@ -784,12 +787,14 @@ function useDashboardSectionData({
       pressure: [],
     };
 
-    climateDeviceMap.forEach((device) => {
-      const group = getClimateDashboardGroup(device);
-      if (group) {
-        groupedIds[group].push(device.id);
-      }
-    });
+    Array.from(climateDeviceMap.values())
+      .sort(compareClimateDashboardDevices)
+      .forEach((device) => {
+        const group = getClimateDashboardGroup(device);
+        if (group) {
+          groupedIds[group].push(device.id);
+        }
+      });
 
     return CLIMATE_DASHBOARD_GROUPS.map((group) => ({
       ...group,
