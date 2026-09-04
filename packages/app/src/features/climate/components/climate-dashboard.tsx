@@ -9,7 +9,7 @@ import { useI18n } from '@navet/app/hooks';
 import type { DeviceWithType } from '@navet/app/types/device.types';
 import { getDeviceRoomLabel } from '@navet/app/utils/device-location';
 import type { TemperatureUnit } from '@navet/app/utils/temperature';
-import { memo, useMemo, useState } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import type { ClimateDashboardSection } from '../types/climate-dashboard';
 import { buildClimateDashboardOverview } from '../utils/climate-dashboard-overview';
 import { ClimateComfortBanner } from './climate-comfort-banner';
@@ -139,9 +139,17 @@ export const ClimateDashboard = memo(function ClimateDashboard({
   const handleGroupingModeChange = (mode: ClimateGroupingMode) => {
     setGroupingMode(mode);
   };
-  const handleGroupChange = (groupId: string) => {
-    setSelectedGroupIds((current) => ({ ...current, [groupingMode]: groupId }));
-  };
+  // Every group is rendered on the page; the pills act as jump links.
+  const handleGroupChange = useCallback(
+    (groupId: string) => {
+      setSelectedGroupIds((current) => ({ ...current, [groupingMode]: groupId }));
+      if (typeof document === 'undefined') return;
+      document
+        .getElementById(`climate-group-panel-${groupId}`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    },
+    [groupingMode]
+  );
   const renderGrid = (orderedIds: string[]) => (
     <DeviceGrid
       orderedCardIds={orderedIds}
@@ -169,7 +177,7 @@ export const ClimateDashboard = memo(function ClimateDashboard({
         <ClimateComfortBanner overview={overview} />
       </SummaryBarStack>
       {selectedGroup ? (
-        <div className="space-y-4">
+        <div className="space-y-6">
           <DashboardGroupingNavigation
             ariaLabel={t('homeSummary.climate')}
             groupingLabel={t('dashboard.roomNav.grouping.label')}
@@ -190,14 +198,20 @@ export const ClimateDashboard = memo(function ClimateDashboard({
             }}
             onItemChange={handleGroupChange}
           />
-          <section
-            role="tabpanel"
-            id={`climate-group-panel-${selectedGroup.id}`}
-            aria-labelledby={`climate-group-tab-${selectedGroup.id}`}
-            data-climate-group-panel={selectedGroup.id}
-          >
-            {renderGrid(selectedGroup.orderedIds)}
-          </section>
+          {groups.map((group) => (
+            <section
+              key={group.id}
+              id={`climate-group-panel-${group.id}`}
+              aria-labelledby={`climate-group-tab-${group.id}`}
+              data-climate-group-panel={group.id}
+              className="scroll-mt-24 space-y-3"
+            >
+              <h2 className="px-1 text-sm font-semibold uppercase tracking-wide text-zinc-400">
+                {group.label}
+              </h2>
+              {renderGrid(group.orderedIds)}
+            </section>
+          ))}
         </div>
       ) : null}
     </div>

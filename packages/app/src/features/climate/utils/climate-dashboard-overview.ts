@@ -78,9 +78,11 @@ function getTemperatureValue(device: DeviceWithType, displayUnit: TemperatureUni
     if (device.hasCurrentTemperature === false) return null;
     const value = getFiniteNumber(device.currentTemperature);
     if (value === null) return null;
+    // Providers such as Home Assistant report climate temperatures in the system unit and expose
+    // no unit attribute on the entity, so an unknown unit means "already in the display unit".
     return convertTemperatureUnitValue(
       value,
-      normalizeTemperatureUnit(device.temperatureUnit) ?? 'celsius',
+      normalizeTemperatureUnit(device.temperatureUnit) ?? displayUnit,
       displayUnit
     );
   }
@@ -123,7 +125,7 @@ function getOutdoorTemperature(
   if (value === null) return null;
   const converted = convertTemperatureUnitValue(
     value,
-    normalizeTemperatureUnit(device.temperatureUnit) ?? 'celsius',
+    normalizeTemperatureUnit(device.temperatureUnit) ?? displayUnit,
     displayUnit
   );
   return `${formatDisplayTemperature(converted)}°`;
@@ -138,13 +140,13 @@ function getOutdoorFeelsLike(device: DeviceWithType, displayUnit: TemperatureUni
     value,
     normalizeTemperatureUnit(device.feelsLikeTemperatureUnit) ??
       normalizeTemperatureUnit(device.temperatureUnit) ??
-      'celsius',
+      displayUnit,
     displayUnit
   );
   return `${formatDisplayTemperature(converted)}°`;
 }
 
-function getRoomComfort(device: DeviceWithType): boolean | null {
+function getRoomComfort(device: DeviceWithType, displayUnit: TemperatureUnit): boolean | null {
   if (device.type !== 'climate' && device.type !== 'hvac') return null;
   if (isUnavailable(device)) return false;
 
@@ -155,7 +157,7 @@ function getRoomComfort(device: DeviceWithType): boolean | null {
   const target = getFiniteNumber(device.temperature);
   if (current === null || target === null) return null;
 
-  const sourceUnit = normalizeTemperatureUnit(device.temperatureUnit) ?? 'celsius';
+  const sourceUnit = normalizeTemperatureUnit(device.temperatureUnit) ?? displayUnit;
   const allowedDeviation = sourceUnit === 'fahrenheit' ? 3.6 : 2;
   return Math.abs(current - target) < allowedDeviation;
 }
@@ -230,7 +232,7 @@ export function buildClimateDashboardOverview(
     }
     outdoorTemperature ??= getOutdoorTemperature(device, displayUnit);
     outdoorFeelsLike ??= getOutdoorFeelsLike(device, displayUnit);
-    const comfortable = getRoomComfort(device);
+    const comfortable = getRoomComfort(device, displayUnit);
     if (comfortable !== null) {
       const room = getDeviceRoomLabel(device);
       roomComfort.set(room, (roomComfort.get(room) ?? true) && comfortable);

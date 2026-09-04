@@ -87,6 +87,12 @@ function renderDashboard(devices: DeviceWithType[]) {
   );
 }
 
+function panelFor(groupId: string) {
+  const panel = document.querySelector(`[data-climate-group-panel="${groupId}"]`);
+  if (!panel) throw new Error(`missing climate group panel ${groupId}`);
+  return panel;
+}
+
 describe('ClimateDashboard', () => {
   beforeEach(() => {
     scrollIntoViewMock.mockClear();
@@ -163,18 +169,24 @@ describe('ClimateDashboard', () => {
 
     const groupingTrigger = screen.getByRole('button', { name: 'Group cards by: Type' });
     expect(groupingTrigger).toHaveTextContent('Type');
-    expect(screen.getByTestId('device-grid')).toHaveTextContent('climate.living_room');
+    // Every group renders on the page at once; the pills are jump links.
+    expect(screen.getAllByTestId('device-grid')).toHaveLength(3);
+    expect(panelFor('type-climate')).toHaveTextContent('climate.living_room');
+    expect(panelFor('type-temperature')).toHaveTextContent('sensor.living_temperature');
+    expect(panelFor('type-airQuality')).toHaveTextContent('sensor.office_air_quality');
 
     const airQualityTab = screen.getByRole('tab', { name: 'Air Quality' });
     expect(airQualityTab).toHaveTextContent(/^Air Quality$/);
     fireEvent.click(airQualityTab);
-    expect(screen.getByTestId('device-grid')).toHaveTextContent('sensor.office_air_quality');
+    expect(airQualityTab).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getAllByTestId('device-grid')).toHaveLength(3);
 
     fireEvent.pointerDown(groupingTrigger, { button: 0, ctrlKey: false });
     fireEvent.click(screen.getByRole('menuitemradio', { name: 'Room' }));
     expect(groupingTrigger).toHaveTextContent('Room');
-    fireEvent.click(screen.getByRole('tab', { name: /Office/ }));
-    expect(screen.getByTestId('device-grid')).toHaveTextContent('sensor.office_air_quality');
-    expect(screen.getByTestId('device-grid')).not.toHaveTextContent('sensor.living_temperature');
+    const officePanel = document.querySelector('[data-climate-group-panel^="room-"][id*="Office"]');
+    expect(officePanel).not.toBeNull();
+    expect(officePanel).toHaveTextContent('sensor.office_air_quality');
+    expect(officePanel).not.toHaveTextContent('sensor.living_temperature');
   });
 });
