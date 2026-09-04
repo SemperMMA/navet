@@ -2228,6 +2228,7 @@ export const plMessages = {
   'sections.climate.singular': 'urządzenie',
   'sections.climate.plural': 'szt.',
   'sections.climate.fans.title': 'Wentylatory',
+  'sections.climate.blinds.title': 'Rolety',
   'sections.climate.temperature.title': 'Temperatura',
   'sections.climate.humidity.title': 'Wilgotność',
   'sections.climate.airQuality.title': 'Jakość powietrza',

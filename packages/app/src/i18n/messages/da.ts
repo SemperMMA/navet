@@ -2226,6 +2226,7 @@ export const daMessages = {
   'sections.climate.singular': 'klimaelement',
   'sections.climate.plural': 'klimaartikler',
   'sections.climate.fans.title': 'Ventilatorer',
+  'sections.climate.blinds.title': 'Persienner',
   'sections.climate.temperature.title': 'Temperatur',
   'sections.climate.humidity.title': 'Fugtighed',
   'sections.climate.airQuality.title': 'Luftkvalitet',

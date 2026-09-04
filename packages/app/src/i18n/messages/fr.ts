@@ -2154,6 +2154,7 @@ export const frMessages = {
   'sections.climate.singular': 'élément de climat',
   'sections.climate.plural': 'éléments de climat',
   'sections.climate.fans.title': 'Ventilateurs',
+  'sections.climate.blinds.title': 'Stores',
   'sections.climate.temperature.title': 'Température',
   'sections.climate.humidity.title': 'Humidité',
   'sections.climate.airQuality.title': 'Qualité de l’air',

@@ -2224,6 +2224,7 @@ export const noMessages = {
   'sections.climate.singular': 'klimaelement',
   'sections.climate.plural': 'klimaelementer',
   'sections.climate.fans.title': 'Vifter',
+  'sections.climate.blinds.title': 'Persienner',
   'sections.climate.temperature.title': 'Temperatur',
   'sections.climate.humidity.title': 'Fuktighet',
   'sections.climate.airQuality.title': 'Luftkvalitet',

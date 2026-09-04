@@ -2146,6 +2146,7 @@ export const esMessages = {
   'sections.climate.singular': 'elemento de clima',
   'sections.climate.plural': 'elementos de clima',
   'sections.climate.fans.title': 'Ventiladores',
+  'sections.climate.blinds.title': 'Persianas',
   'sections.climate.temperature.title': 'Temperatura',
   'sections.climate.humidity.title': 'Humedad',
   'sections.climate.airQuality.title': 'Calidad del aire',

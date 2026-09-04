@@ -2261,6 +2261,7 @@ export const enMessages = {
   'sections.climate.singular': 'climate item',
   'sections.climate.plural': 'climate items',
   'sections.climate.fans.title': 'Fans',
+  'sections.climate.blinds.title': 'Blinds',
   'sections.climate.temperature.title': 'Temperature',
   'sections.climate.humidity.title': 'Humidity',
   'sections.climate.airQuality.title': 'Air Quality',

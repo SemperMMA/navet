@@ -2009,6 +2009,7 @@ export const zhMessages = {
   'sections.climate.singular': '气候项目',
   'sections.climate.plural': '气候项目',
   'sections.climate.fans.title': '风扇',
+  'sections.climate.blinds.title': '百叶窗',
   'sections.climate.temperature.title': '温度',
   'sections.climate.humidity.title': '湿度',
   'sections.climate.airQuality.title': '空气质量',

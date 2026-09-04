@@ -122,6 +122,11 @@ const CLIMATE_DASHBOARD_GROUPS: DashboardClimateSectionGroup[] = [
     orderedIds: [],
   },
   {
+    key: 'blinds',
+    titleKey: 'sections.climate.blinds.title',
+    orderedIds: [],
+  },
+  {
     key: 'temperature',
     titleKey: 'sections.climate.temperature.title',
     orderedIds: [],
@@ -771,6 +776,7 @@ function useDashboardSectionData({
     const groupedIds: Record<DashboardClimateSectionGroup['key'], string[]> = {
       climate: [],
       fans: [],
+      blinds: [],
       temperature: [],
       humidity: [],
       airQuality: [],

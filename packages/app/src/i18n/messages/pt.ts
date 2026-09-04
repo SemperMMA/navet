@@ -2138,6 +2138,7 @@ export const ptMessages = {
   'sections.climate.singular': 'item de clima',
   'sections.climate.plural': 'itens de clima',
   'sections.climate.fans.title': 'Ventiladores',
+  'sections.climate.blinds.title': 'Persianas',
   'sections.climate.temperature.title': 'Temperatura',
   'sections.climate.humidity.title': 'Umidade',
   'sections.climate.airQuality.title': 'Qualidade do ar',

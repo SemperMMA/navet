@@ -2242,6 +2242,7 @@ export const nlMessages = {
   'sections.climate.singular': 'klimaat artikel',
   'sections.climate.plural': 'klimaat artikelen',
   'sections.climate.fans.title': 'Fans',
+  'sections.climate.blinds.title': 'Jaloezieën',
   'sections.climate.temperature.title': 'Temperatuur',
   'sections.climate.humidity.title': 'Vochtigheid',
   'sections.climate.airQuality.title': 'Luchtkwaliteit',

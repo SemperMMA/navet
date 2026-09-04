@@ -2156,6 +2156,7 @@ export const deMessages = {
   'sections.climate.singular': 'Klimaelement',
   'sections.climate.plural': 'Klimaelemente',
   'sections.climate.fans.title': 'Lufter',
+  'sections.climate.blinds.title': 'Jalousien',
   'sections.climate.temperature.title': 'Temperatur',
   'sections.climate.humidity.title': 'Luftfeuchtigkeit',
   'sections.climate.airQuality.title': 'Luftqualität',

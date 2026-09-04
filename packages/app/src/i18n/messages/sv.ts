@@ -2124,6 +2124,7 @@ export const svMessages = {
   'sections.climate.singular': 'klimatobjekt',
   'sections.climate.plural': 'klimatobjekt',
   'sections.climate.fans.title': 'Flaktar',
+  'sections.climate.blinds.title': 'Persienner',
   'sections.climate.temperature.title': 'Temperatur',
   'sections.climate.humidity.title': 'Luftfuktighet',
   'sections.climate.airQuality.title': 'Luftkvalitet',

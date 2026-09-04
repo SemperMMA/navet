@@ -2231,6 +2231,7 @@ export const fiMessages = {
   'sections.climate.singular': 'ilmastotuote',
   'sections.climate.plural': 'ilmastotuotteita',
   'sections.climate.fans.title': 'Fanit',
+  'sections.climate.blinds.title': 'Kaihtimet',
   'sections.climate.temperature.title': 'Lämpötila',
   'sections.climate.humidity.title': 'Kosteus',
   'sections.climate.airQuality.title': 'Ilmanlaatu',

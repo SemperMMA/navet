@@ -1466,6 +1466,7 @@ export const itMessages = {
   'sections.climate.singular': 'elemento clima',
   'sections.climate.plural': 'elementi clima',
   'sections.climate.fans.title': 'Ventilatori',
+  'sections.climate.blinds.title': 'Tende',
   'sections.climate.temperature.title': 'Temperatura',
   'sections.climate.humidity.title': 'Umidità',
   'sections.climate.airQuality.title': 'Qualità dell’aria',
