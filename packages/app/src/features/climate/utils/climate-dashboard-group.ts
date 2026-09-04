@@ -10,13 +10,23 @@ export type ClimateDashboardGroupKey =
   | 'pressure';
 
 const BLIND_COVER_DEVICE_CLASSES = new Set(['blind', 'shade', 'shutter', 'curtain', 'awning']);
-const NON_BLIND_COVER_DEVICE_CLASSES = new Set(['door', 'garage', 'garage_door', 'gate', 'window', 'damper']);
+const NON_BLIND_COVER_DEVICE_CLASSES = new Set([
+  'door',
+  'garage',
+  'garage_door',
+  'gate',
+  'window',
+  'damper',
+]);
 
 function isBlindLikeCover(device: DeviceWithType): boolean {
   if (device.type !== 'covers') return false;
   const deviceClass = String(device.deviceClass ?? '').toLowerCase();
   if (deviceClass) {
-    return BLIND_COVER_DEVICE_CLASSES.has(deviceClass) || !NON_BLIND_COVER_DEVICE_CLASSES.has(deviceClass);
+    return (
+      BLIND_COVER_DEVICE_CLASSES.has(deviceClass) ||
+      !NON_BLIND_COVER_DEVICE_CLASSES.has(deviceClass)
+    );
   }
   // Cover groups carry no device class - go by name (blinds/shades/curtains) and never doors/gates.
   const text = `${device.id} ${device.name ?? ''}`.toLowerCase();
