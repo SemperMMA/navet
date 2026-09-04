@@ -103,6 +103,7 @@ const CLIMATE_SECTION_DEVICE_KEYS = [
   'climate',
   'hvac',
   'fans',
+  'covers',
   'switches',
   'sensors',
   'weather',
