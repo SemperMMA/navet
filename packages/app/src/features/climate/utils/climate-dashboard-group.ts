@@ -79,14 +79,17 @@ export function getClimateDashboardGroup(device: DeviceWithType): ClimateDashboa
 function getClimateSortRank(device: DeviceWithType): number {
   if (device.type === 'climate' || device.type === 'hvac') {
     const modes = (device.supportedHvacModes ?? []).map((mode) => String(mode).toLowerCase());
-    // Whole-home thermostats (heat capable) ahead of room air conditioners.
-    return modes.includes('heat') || modes.includes('heat_cool') || modes.includes('auto') ? 0 : 1;
+    // Whole-home thermostats (they can heat) ahead of room air conditioners.
+    return modes.includes('heat') || modes.includes('heat_cool') ? 0 : 1;
   }
   if (device.type === 'covers') {
-    const members = (device as { groupMembers?: unknown }).groupMembers;
-    const memberCount = Array.isArray(members) ? members.length : 0;
-    // Bigger groups first (All -> floors -> rooms), then individual blinds.
-    return memberCount > 0 ? -memberCount : 1;
+    // Cover groups carry no device class; individual blinds report one.
+    const isGroup = !String(device.deviceClass ?? '').trim();
+    if (!isGroup) return 1;
+    const name = String(device.name ?? device.id).toLowerCase();
+    if (/\ball\b/.test(name)) return -3;
+    if (/\bfloor\b/.test(name)) return -2;
+    return -1;
   }
   return 0;
 }
@@ -95,7 +98,13 @@ function getClimateSortRank(device: DeviceWithType): number {
 export function compareClimateDashboardDevices(left: DeviceWithType, right: DeviceWithType) {
   const rankDelta = getClimateSortRank(left) - getClimateSortRank(right);
   if (rankDelta !== 0) return rankDelta;
+  const leftName = left.name ?? left.id;
+  const rightName = right.name ?? right.id;
+  const isWholeHome =
+    (left.type === 'climate' || left.type === 'hvac' || left.type === 'covers') &&
+    getClimateSortRank(left) <= 0;
+  if (isWholeHome) return leftName.localeCompare(rightName);
   const roomDelta = getDeviceRoomLabel(left).localeCompare(getDeviceRoomLabel(right));
   if (roomDelta !== 0) return roomDelta;
-  return (left.name ?? left.id).localeCompare(right.name ?? right.id);
+  return leftName.localeCompare(rightName);
 }
