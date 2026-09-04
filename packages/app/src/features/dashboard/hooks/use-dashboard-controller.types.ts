@@ -27,6 +27,9 @@ export interface DashboardSectionData {
   allClimateDeviceMap: Map<string, DeviceWithType>;
   hiddenClimateEntityIds: string[];
   climateSections: DashboardClimateSectionGroup[];
+  vacuumDeviceMap: Map<string, DeviceWithType>;
+  allVacuumDeviceMap: Map<string, DeviceWithType>;
+  hiddenVacuumEntityIds: string[];
 }
 
 export type DashboardController = OnboardingController &

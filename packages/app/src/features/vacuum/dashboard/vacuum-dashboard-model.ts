@@ -270,6 +270,22 @@ interface ClassifiedEntity {
   isDockDevice: boolean;
 }
 
+function deriveDeviceName(
+  snapshot: PlatformEntitySnapshot | undefined,
+  registryEntry: PlatformEntityRegistryEntry | undefined
+): string | undefined {
+  const friendly = readString(snapshot?.attributes?.friendly_name);
+  if (!friendly) return undefined;
+  const explicit = readString(registryEntry?.deviceName);
+  if (explicit) return explicit;
+  const entityName = readString(registryEntry?.name);
+  if (entityName && friendly.toLowerCase().endsWith(entityName.toLowerCase())) {
+    const prefix = friendly.slice(0, friendly.length - entityName.length).trim();
+    return prefix.length > 0 ? prefix : friendly;
+  }
+  return friendly;
+}
+
 function collectDeviceEntities({
   vacuumEntityId,
   entities,
@@ -291,39 +307,39 @@ function collectDeviceEntities({
     vacuumEntityId.split('.')[1] ??
     vacuumEntityId;
   const primaryDeviceId = vacuumRegistry?.deviceId ?? null;
-  const primaryDeviceName = readString(vacuumRegistry?.deviceName) ?? vacuumName;
+  const primaryDeviceName =
+    deriveDeviceName(vacuumSnapshot, vacuumRegistry) ??
+    readString(vacuumRegistry?.deviceName) ??
+    vacuumName;
   const platform = vacuumRegistry?.platform ?? null;
 
   // Sibling devices (e.g. the Roborock "Wilma Dock") share the platform and
-  // carry the robot's device name as a prefix.
+  // carry the robot's device name as a prefix of their own device name.
   const siblingDeviceIds = new Set<string>();
   const dockDeviceIds = new Set<string>();
+  const deviceNames = new Map<string, string>();
   if (primaryDeviceId) {
     siblingDeviceIds.add(primaryDeviceId);
+    deviceNames.set(primaryDeviceId, primaryDeviceName);
   }
+  const primaryLower = primaryDeviceName.toLowerCase();
   for (const entry of registry) {
     if (!entry.deviceId || entry.deviceId === primaryDeviceId) continue;
+    if (siblingDeviceIds.has(entry.deviceId)) continue;
     if (platform && entry.platform && entry.platform !== platform) continue;
-    const deviceName = readString(entry.deviceName);
+    const deviceName = deriveDeviceName(snapshots[entry.entityId], entry);
     if (!deviceName) continue;
     const lower = deviceName.toLowerCase();
-    const primaryLower = primaryDeviceName.toLowerCase();
     if (lower !== primaryLower && lower.startsWith(`${primaryLower} `)) {
       siblingDeviceIds.add(entry.deviceId);
       dockDeviceIds.add(entry.deviceId);
+      deviceNames.set(entry.deviceId, deviceName);
     }
   }
 
   const namePrefixes = Array.from(
     new Set(
-      [
-        ...registry
-          .filter((entry) => entry.deviceId && siblingDeviceIds.has(entry.deviceId))
-          .map((entry) => readString(entry.deviceName))
-          .filter((value): value is string => Boolean(value)),
-        vacuumName,
-        primaryDeviceName,
-      ].filter((value) => value.length > 0)
+      [...deviceNames.values(), vacuumName, primaryDeviceName].filter((value) => value.length > 0)
     )
   );
 
@@ -398,10 +414,14 @@ function humanizeBinaryState({
       : { valueLabel: 'Detached', tone: 'neutral' };
   }
   if (deviceClass === 'battery_charging' || searchable.includes('charging')) {
-    return isOn ? { valueLabel: 'Charging', tone: 'active' } : { valueLabel: 'Idle', tone: 'neutral' };
+    return isOn
+      ? { valueLabel: 'Charging', tone: 'active' }
+      : { valueLabel: 'Idle', tone: 'neutral' };
   }
   if (deviceClass === 'running' || includesAny(searchable, ['cleaning', 'drying', 'washing'])) {
-    return isOn ? { valueLabel: 'Running', tone: 'active' } : { valueLabel: 'Idle', tone: 'neutral' };
+    return isOn
+      ? { valueLabel: 'Running', tone: 'active' }
+      : { valueLabel: 'Idle', tone: 'neutral' };
   }
   return isOn ? { valueLabel: 'On', tone: 'active' } : { valueLabel: 'Off', tone: 'neutral' };
 }
@@ -490,15 +510,11 @@ export function buildVacuumDashboardModel(
         }
 
         if (isTimeLeft && (isDuration || unit === '%')) {
-          const base = searchable
-            .replace(/\btime left\b|\bleft\b|\bremaining\b/g, '')
-            .replace(/\s+/g, ' ')
-            .trim();
+          const baseLabel = label.replace(/\s*(time left|left|remaining)\s*$/i, '').trim() || label;
+          const base = baseLabel.toLowerCase().replace(/[_-]+/g, ' ');
           const key = slugify(base);
           const bucket = consumableBuckets.get(key) ?? {
-            label: humanizeToken(
-              label.replace(/\s*(time left|left|remaining)\s*$/i, '').trim() || label
-            ),
+            label: humanizeToken(baseLabel),
             entityId: entity.entityId,
             searchable: base,
           };
@@ -511,7 +527,11 @@ export function buildVacuumDashboardModel(
           break;
         }
 
-        if (searchable.includes('battery') && numeric !== undefined && model.battery === undefined) {
+        if (
+          searchable.includes('battery') &&
+          numeric !== undefined &&
+          model.battery === undefined
+        ) {
           model.battery = numeric;
           break;
         }
@@ -537,7 +557,17 @@ export function buildVacuumDashboardModel(
           }
           break;
         }
-        if (searchable === 'status' || searchable.endsWith(' status') && !searchable.includes('tank') && !searchable.includes('bag') && !searchable.includes('detergent') && !searchable.includes('base') && !searchable.includes('empty') && !searchable.includes('drain') && !searchable.includes('task')) {
+        if (
+          searchable === 'status' ||
+          (searchable.endsWith(' status') &&
+            !searchable.includes('tank') &&
+            !searchable.includes('bag') &&
+            !searchable.includes('detergent') &&
+            !searchable.includes('base') &&
+            !searchable.includes('empty') &&
+            !searchable.includes('drain') &&
+            !searchable.includes('task'))
+        ) {
           if (known && !model.rawStatus) model.rawStatus = state;
           break;
         }
@@ -562,14 +592,16 @@ export function buildVacuumDashboardModel(
           break;
         }
         if (searchable.includes('cleaning count') || searchable.includes('clean count')) {
-          if (numeric !== undefined && model.totals.count === undefined) model.totals.count = numeric;
+          if (numeric !== undefined && model.totals.count === undefined)
+            model.totals.count = numeric;
           break;
         }
         if (
           (searchable.includes('cleaning time') || searchable.includes('clean time')) &&
           !searchable.includes('total')
         ) {
-          if (numeric !== undefined) model.session.durationSeconds = durationToSeconds(numeric, unit);
+          if (numeric !== undefined)
+            model.session.durationSeconds = durationToSeconds(numeric, unit);
           break;
         }
         if (
@@ -587,7 +619,14 @@ export function buildVacuumDashboardModel(
           const isStatusLike = deviceClass === 'enum' || numeric === undefined;
           const value = isStatusLike ? humanizeToken(state) : `${numeric}${unit ? ` ${unit}` : ''}`;
           const lower = state.toLowerCase();
-          const tone: VacuumTone = includesAny(lower, ['full', 'empty', 'error', 'low', 'missing', 'blocked'])
+          const tone: VacuumTone = includesAny(lower, [
+            'full',
+            'empty',
+            'error',
+            'low',
+            'missing',
+            'blocked',
+          ])
             ? 'warn'
             : includesAny(lower, ['ok', 'normal', 'installed', 'idle'])
               ? 'ok'
@@ -622,7 +661,11 @@ export function buildVacuumDashboardModel(
       case 'switch': {
         if (!known) break;
         const isOn = state === 'on';
-        if (searchable.includes('do not disturb') || searchable === 'dnd' || searchable.includes('dnd')) {
+        if (
+          searchable.includes('do not disturb') ||
+          searchable === 'dnd' ||
+          searchable.includes('dnd')
+        ) {
           model.dnd.switchEntityId = entity.entityId;
           model.dnd.isOn = isOn;
           break;
@@ -641,7 +684,10 @@ export function buildVacuumDashboardModel(
           label,
           isOn,
           isRunning: isDockAction && isOn,
-          group: entity.isDockDevice || isDockAction || searchable.includes('child lock') ? 'dock' : 'robot',
+          group:
+            entity.isDockDevice || isDockAction || searchable.includes('child lock')
+              ? 'dock'
+              : 'robot',
         });
         break;
       }
@@ -652,7 +698,11 @@ export function buildVacuumDashboardModel(
           label,
           value: known ? state : '',
           options,
-          group: includesAny(searchable, ['map']) ? 'other' : entity.isDockDevice || includesAny(searchable, ['empty', 'wash', 'dry']) ? 'dock' : 'clean',
+          group: includesAny(searchable, ['map'])
+            ? 'other'
+            : entity.isDockDevice || includesAny(searchable, ['empty', 'wash', 'dry'])
+              ? 'dock'
+              : 'clean',
         };
         if (searchable.includes('selected map') || searchable === 'map') {
           model.mapSelect = select;
@@ -689,7 +739,18 @@ export function buildVacuumDashboardModel(
         break;
       }
       case 'button': {
-        if (searchable.includes('reset') && includesAny(searchable, ['consumable', 'brush', 'filter', 'sensor', 'mop', 'strainer', 'detergent'])) {
+        if (
+          searchable.includes('reset') &&
+          includesAny(searchable, [
+            'consumable',
+            'brush',
+            'filter',
+            'sensor',
+            'mop',
+            'strainer',
+            'detergent',
+          ])
+        ) {
           resetButtons.push({ entityId: entity.entityId, searchable });
           break;
         }
@@ -747,9 +808,14 @@ export function buildVacuumDashboardModel(
   for (const [key, bucket] of consumableBuckets) {
     let percent = bucket.percent;
     if (percent === undefined && bucket.seconds !== undefined) {
-      const lifetime = CONSUMABLE_LIFETIME_HOURS.find((entry) => entry.match.test(bucket.searchable));
+      const lifetime = CONSUMABLE_LIFETIME_HOURS.find((entry) =>
+        entry.match.test(bucket.searchable)
+      );
       if (lifetime) {
-        percent = Math.max(0, Math.min(100, Math.round((bucket.seconds / 3600 / lifetime.hours) * 100)));
+        percent = Math.max(
+          0,
+          Math.min(100, Math.round((bucket.seconds / 3600 / lifetime.hours) * 100))
+        );
       }
     }
     const remainingHours = bucket.seconds !== undefined ? bucket.seconds / 3600 : undefined;
@@ -801,7 +867,9 @@ export function buildVacuumDashboardModel(
     a.kind === b.kind ? a.label.localeCompare(b.label) : a.kind === 'routine' ? -1 : 1
   );
   model.flags.sort((a, b) => (a.tone === 'bad' ? -1 : b.tone === 'bad' ? 1 : 0));
-  model.maps = model.maps.filter((map) => !map.isUnavailable).concat(model.maps.filter((map) => map.isUnavailable));
+  model.maps = model.maps
+    .filter((map) => !map.isUnavailable)
+    .concat(model.maps.filter((map) => map.isUnavailable));
 
   return model;
 }
@@ -820,7 +888,10 @@ export function formatVacuumDuration(seconds: number | undefined): string | unde
   return `${total}s`;
 }
 
-export function formatVacuumArea(sqm: number | undefined, unit: 'm²' | 'ft²' = 'm²'): string | undefined {
+export function formatVacuumArea(
+  sqm: number | undefined,
+  unit: 'm²' | 'ft²' = 'm²'
+): string | undefined {
   if (sqm === undefined || !Number.isFinite(sqm)) return undefined;
   const value = unit === 'ft²' ? sqm * 10.7639 : sqm;
   const rounded = value >= 100 ? Math.round(value) : Math.round(value * 10) / 10;

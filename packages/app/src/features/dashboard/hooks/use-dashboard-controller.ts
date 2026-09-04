@@ -89,7 +89,7 @@ import {
 } from './use-home-security-alert-count';
 import { useOnboardingController } from './use-onboarding-controller';
 
-const DASHBOARD_DEVICE_SECTION_IDS = new Set(['home', 'lights', 'climate']);
+const DASHBOARD_DEVICE_SECTION_IDS = new Set(['home', 'lights', 'climate', 'vacuums']);
 const EMPTY_PROVIDER_ENTITY_VIEWS: ReturnType<
   typeof integrationSelectors.providerEntityViewsByProviderId
 > = {};
@@ -112,6 +112,7 @@ const CLIMATE_SECTION_DEVICE_KEYS = [
   'weather',
 ] as const;
 const LIGHTS_SECTION_DEVICE_KEYS = ['lights'] as const;
+const VACUUM_SECTION_DEVICE_KEYS = ['vacuums'] as const;
 const EMPTY_SECTION_DEVICE_KEYS: readonly DeviceCollectionKey[] = [];
 const FEATURE_COLLECTION_ENTITY_ID_PATTERN = /(?:^|:)(?:calendar|weather)\./;
 const CLIMATE_DASHBOARD_GROUPS: DashboardClimateSectionGroup[] = [
@@ -488,7 +489,9 @@ export function useDashboardController(): DashboardController {
             ? lightDeviceMap.values()
             : activeSection === 'climate'
               ? sectionData.climateDeviceMap.values()
-              : deviceMap.values(),
+              : activeSection === 'vacuums'
+                ? sectionData.vacuumDeviceMap.values()
+                : deviceMap.values(),
       }),
     [
       activeSection,
@@ -501,6 +504,7 @@ export function useDashboardController(): DashboardController {
       lightDeviceMap,
       lowPowerMode,
       sectionData.climateDeviceMap,
+      sectionData.vacuumDeviceMap,
     ]
   );
   const densePerformanceMode = performanceProfile.densePerformanceMode;
@@ -701,6 +705,10 @@ function resolveDenseVisibleCardCount({
     );
   }
 
+  if (activeSection === 'vacuums') {
+    return sectionData.vacuumDeviceMap.size;
+  }
+
   if (activeSection === 'home' && isAllRooms(activeRoom)) {
     return homeLayoutCardIds.length;
   }
@@ -801,6 +809,31 @@ function useDashboardSectionData({
       orderedIds: groupedIds[group.key],
     })).filter((group) => group.orderedIds.length > 0);
   }, [activeSection, climateDeviceMap]);
+  const vacuumDeviceMap = useMemo(
+    () =>
+      activeSection === 'vacuums'
+        ? new Map(Array.from(deviceMap.entries()).filter(([, device]) => device.type === 'vacuums'))
+        : new Map<string, DeviceWithType>(),
+    [activeSection, deviceMap]
+  );
+  const allVacuumDeviceMap = useMemo(
+    () =>
+      activeSection === 'vacuums'
+        ? new Map(
+            Array.from(availableDeviceMap.entries()).filter(
+              ([, device]) => device.type === 'vacuums'
+            )
+          )
+        : new Map<string, DeviceWithType>(),
+    [activeSection, availableDeviceMap]
+  );
+  const hiddenVacuumEntityIds = useMemo(
+    () =>
+      activeSection === 'vacuums'
+        ? Array.from(allVacuumDeviceMap.keys()).filter((entityId) => !vacuumDeviceMap.has(entityId))
+        : [],
+    [activeSection, allVacuumDeviceMap, vacuumDeviceMap]
+  );
   const energyCustomCards = useMemo(
     () => allCustomCards.filter((card) => card.room === ENERGY_WIDGET_ROOM),
     [allCustomCards]
@@ -822,6 +855,7 @@ function useDashboardSectionData({
         'energy',
         'tasks',
         'climate',
+        'vacuums',
         'lights',
         'media',
         'settings',
@@ -834,6 +868,9 @@ function useDashboardSectionData({
       allClimateDeviceMap,
       hiddenClimateEntityIds,
       climateSections,
+      vacuumDeviceMap,
+      allVacuumDeviceMap,
+      hiddenVacuumEntityIds,
     }),
     [
       activeSection,
@@ -845,6 +882,9 @@ function useDashboardSectionData({
       energyOrderedCardIds,
       hiddenClimateEntityIds,
       hiddenLightEntityIds,
+      vacuumDeviceMap,
+      allVacuumDeviceMap,
+      hiddenVacuumEntityIds,
     ]
   );
 }
@@ -950,6 +990,10 @@ export function resolveDashboardSectionDeviceKeys(
 
   if (activeSection === 'climate') {
     return CLIMATE_SECTION_DEVICE_KEYS;
+  }
+
+  if (activeSection === 'vacuums') {
+    return VACUUM_SECTION_DEVICE_KEYS;
   }
 
   if (activeSection === 'media') {

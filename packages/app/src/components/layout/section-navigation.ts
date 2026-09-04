@@ -1,6 +1,7 @@
 import type { TranslateFn, TranslationKey } from '@navet/app/i18n';
 import type { Section } from '@navet/app/navigation/sections';
 import {
+  Bot,
   ClipboardCheck,
   Fan,
   Home,
@@ -26,6 +27,7 @@ const SECTION_NAVIGATION_CONFIG: Array<{
   { icon: Home, labelKey: 'sidebar.home', section: 'home' },
   { icon: Zap, labelKey: 'sidebar.energy', section: 'energy' },
   { icon: Fan, labelKey: 'sidebar.climate', section: 'climate' },
+  { icon: Bot, labelKey: 'sidebar.vacuums', section: 'vacuums' },
   { icon: Shield, labelKey: 'sidebar.security', section: 'security' },
   { icon: Lightbulb, labelKey: 'sidebar.lights', section: 'lights' },
   { icon: Speaker, labelKey: 'sidebar.media', section: 'media' },
@@ -39,6 +41,7 @@ export const MOBILE_SECTION_ORBIT_ORDER: Section[] = [
   'home',
   'energy',
   'climate',
+  'vacuums',
   'security',
   'lights',
   'media',

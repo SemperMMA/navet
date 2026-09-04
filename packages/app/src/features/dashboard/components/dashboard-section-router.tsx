@@ -13,7 +13,6 @@ import { useChoreWorkspaceSync } from '@navet/app/features/chores/use-chore-work
 import { getClimateDashboardGroup } from '@navet/app/features/climate/utils/climate-dashboard-group';
 import { useRoomWorkspaceStore } from '@navet/app/features/dashboard/rooms/room-workspace-store';
 import { getRoomWorkspaceSectionsV2 } from '@navet/app/features/dashboard/rooms/room-workspace-v2';
-import type { DeviceWithType } from '@navet/app/types/device.types';
 import {
   getEnergyOverviewTemplateLayout,
   useEnergyOverviewLayout,
@@ -27,9 +26,10 @@ import { useTaskRoutines } from '@navet/app/features/tasks/hooks/use-task-automa
 import { useI18n, useIntegrationStore } from '@navet/app/hooks';
 import { useNavigationStore, useSettingsStore } from '@navet/app/stores';
 import { integrationSelectors, settingsSelectors } from '@navet/app/stores/selectors';
+import type { DeviceWithType } from '@navet/app/types/device.types';
 import { getDeviceRoomLabel } from '@navet/app/utils/device-location';
 import { getChoreTiming } from '@navet/core/chores';
-import { Lightbulb, Thermometer } from 'lucide-react';
+import { Bot, Lightbulb, Thermometer } from 'lucide-react';
 import {
   lazy,
   memo,
@@ -83,6 +83,10 @@ const ClimateDashboard = lazy(async () => {
   const module = await import('@navet/app/features/climate');
   return { default: module.ClimateDashboard };
 });
+const VacuumsDashboard = lazy(async () => {
+  const module = await import('@navet/app/features/vacuum/dashboard/vacuums-dashboard');
+  return { default: module.VacuumsDashboard };
+});
 const AddEntityDialog = lazy(async () => {
   const module = await import('./add-entity-dialog');
   return { default: module.AddEntityDialog };
@@ -127,6 +131,7 @@ function DashboardSectionRouterComponent({ controller }: DashboardSectionRouterP
   });
   const [isAddLightEntityDialogOpen, setIsAddLightEntityDialogOpen] = useState(false);
   const [isAddClimateEntityDialogOpen, setIsAddClimateEntityDialogOpen] = useState(false);
+  const [isAddVacuumEntityDialogOpen, setIsAddVacuumEntityDialogOpen] = useState(false);
   const [isRoomManagementOpen, setIsRoomManagementOpen] = useState(false);
   const [isEnergyKpiCustomizationOpen, setIsEnergyKpiCustomizationOpen] = useState(false);
   const [isSecurityOverviewCustomizationOpen, setIsSecurityOverviewCustomizationOpen] =
@@ -332,6 +337,8 @@ function DashboardSectionRouterComponent({ controller }: DashboardSectionRouterP
   const closeAddLightEntityDialog = useCallback(() => setIsAddLightEntityDialogOpen(false), []);
   const openAddClimateEntityDialog = useCallback(() => setIsAddClimateEntityDialogOpen(true), []);
   const closeAddClimateEntityDialog = useCallback(() => setIsAddClimateEntityDialogOpen(false), []);
+  const openAddVacuumEntityDialog = useCallback(() => setIsAddVacuumEntityDialogOpen(true), []);
+  const closeAddVacuumEntityDialog = useCallback(() => setIsAddVacuumEntityDialogOpen(false), []);
   const handleAddLightEntity = useCallback(
     (entityId: string) => {
       handleAddEntity(entityId);
@@ -368,6 +375,10 @@ function DashboardSectionRouterComponent({ controller }: DashboardSectionRouterP
 
     if (activeSection === 'climate' && sectionData.hiddenClimateEntityIds.length > 0) {
       return openAddClimateEntityDialog;
+    }
+
+    if (activeSection === 'vacuums' && sectionData.hiddenVacuumEntityIds.length > 0) {
+      return openAddVacuumEntityDialog;
     }
 
     return canOpenAddEntityDialog ? onOpenAddEntityDialog : undefined;
@@ -503,6 +514,69 @@ function DashboardSectionRouterComponent({ controller }: DashboardSectionRouterP
               deviceMap={sectionData.allClimateDeviceMap}
               addedEntityIds={[]}
               visibleEntityIds={sectionData.hiddenClimateEntityIds}
+              title={t('dashboard.addEntity.title')}
+              description={t('dashboard.addEntity.descriptionWithHidden')}
+              actionLabel={t('dashboard.addEntity.action')}
+            />
+          </Suspense>
+        ) : null}
+      </div>
+    );
+  } else if (activeSection === 'vacuums') {
+    sectionContent = (
+      <div {...sectionStackProps} className="relative flex flex-col gap-2 md:gap-6">
+        {sectionData.vacuumDeviceMap.size > 0 ? (
+          <SectionCustomizeShell
+            isEditMode={isEditMode}
+            onToggle={onToggleEditMode ?? (() => {})}
+            className="relative"
+            actions={null}
+            showCustomizeButton={false}
+          >
+            <RenderProfiler id="VacuumsSection">
+              <Suspense fallback={<LoadingSpinner message={t('common.loading')} />}>
+                <VacuumsDashboard
+                  deviceMap={sectionData.vacuumDeviceMap}
+                  isEditMode={isEditMode}
+                  onRemoveEntity={handleRemoveEntity}
+                />
+              </Suspense>
+            </RenderProfiler>
+          </SectionCustomizeShell>
+        ) : (
+          <div className="flex h-full items-center justify-center p-6">
+            <DashboardEmptyState
+              icon={Bot}
+              title={t('sections.vacuums.emptyTitle')}
+              description={
+                sectionData.hiddenVacuumEntityIds.length > 0
+                  ? t('sections.vacuums.emptyHiddenDescription')
+                  : t('sections.vacuums.emptyDescription')
+              }
+              actionIcon={Bot}
+              actionLabel={
+                sectionData.hiddenVacuumEntityIds.length > 0
+                  ? t('dashboard.addEntity.title')
+                  : undefined
+              }
+              onAction={
+                sectionData.hiddenVacuumEntityIds.length > 0 ? openAddVacuumEntityDialog : undefined
+              }
+              className="w-full max-w-md"
+            />
+          </div>
+        )}
+
+        {isAddVacuumEntityDialogOpen ? (
+          <Suspense fallback={<LoadingSpinner message={t('common.loading')} />}>
+            <AddEntityDialog
+              open={isAddVacuumEntityDialogOpen}
+              onClose={closeAddVacuumEntityDialog}
+              onAddEntity={handleAddClimateEntity}
+              currentRoom={ALL_ROOMS_ID}
+              deviceMap={sectionData.allVacuumDeviceMap}
+              addedEntityIds={[]}
+              visibleEntityIds={sectionData.hiddenVacuumEntityIds}
               title={t('dashboard.addEntity.title')}
               description={t('dashboard.addEntity.descriptionWithHidden')}
               actionLabel={t('dashboard.addEntity.action')}
@@ -838,6 +912,7 @@ function areDashboardSectionRouterPropsEqual(
 
   switch (previousController.activeSection) {
     case 'climate':
+    case 'vacuums':
       return true;
     case 'energy':
     case 'lights':

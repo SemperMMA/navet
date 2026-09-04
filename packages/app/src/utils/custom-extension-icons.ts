@@ -1,6 +1,7 @@
 import { resolveLightIconComponent } from '@navet/app/constants/icon-map';
 import {
   Bell,
+  Bot,
   Clipboard,
   Fan,
   Home,
@@ -23,6 +24,7 @@ const customExtensionIcons: Record<CustomExtensionIconId, LucideIcon> = {
   home: Home,
   energy: Zap,
   climate: Fan,
+  vacuums: Bot,
   security: Shield,
   lights: Lightbulb,
   media: Speaker,

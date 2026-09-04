@@ -37,6 +37,7 @@ const SECTION_OPTIONS = [
   ['home', 'sidebar.home'],
   ['energy', 'sidebar.energy'],
   ['climate', 'sidebar.climate'],
+  ['vacuums', 'sidebar.vacuums'],
   ['security', 'sidebar.security'],
   ['lights', 'sidebar.lights'],
   ['media', 'sidebar.media'],
